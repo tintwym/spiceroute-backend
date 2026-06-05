@@ -47,3 +47,19 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "B", "UP"]
 ignore = ["E501"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's parameter helpers (File, Form, Body, Query, etc.) are the
+# canonical idiom for declaring request parameters as function-arg defaults.
+# They are immutable factories, so B008 does not apply.
+extend-immutable-calls = [
+    "fastapi.File",
+    "fastapi.Form",
+    "fastapi.Body",
+    "fastapi.Query",
+    "fastapi.Path",
+    "fastapi.Header",
+    "fastapi.Cookie",
+    "fastapi.Depends",
+    "fastapi.Security",
+]

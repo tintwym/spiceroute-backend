@@ -33,12 +33,12 @@ async def register(payload: RegisterRequest, db: DbSession) -> TokenPair:
     db.add(user)
     try:
         await db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="email already registered",
-        )
+        ) from exc
     await db.refresh(user)
     return TokenPair(
         access_token=create_access_token(user.id),
@@ -64,11 +64,11 @@ async def login(payload: LoginRequest, db: DbSession) -> TokenPair:
 async def refresh(payload: RefreshRequest, db: DbSession) -> AccessToken:
     try:
         user_id = decode_token(payload.refresh_token, expected_type="refresh")
-    except ValueError:
+    except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="invalid or expired refresh token",
-        )
+        ) from exc
     user = await db.scalar(select(User).where(User.id == user_id))
     if not user:
         raise HTTPException(

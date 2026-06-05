@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -21,7 +21,7 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 
 def _encode(subject: str, expires_delta: timedelta, token_type: str) -> str:
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
     payload: dict[str, Any] = {
         "sub": subject,
         "iat": int(now.timestamp()),

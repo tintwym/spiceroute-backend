@@ -5,7 +5,6 @@ from httpx import AsyncClient
 
 from tests.conftest import auth
 
-
 # Smallest valid 1x1 PNG
 PNG_BYTES = (
     b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
