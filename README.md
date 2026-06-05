@@ -2,7 +2,7 @@
 
 FastAPI + SQLAlchemy + Alembic + PostgreSQL backend for the **SpiceRoute** recipe management app. Designed to run in Docker, with PostgreSQL hosted on [Neon](https://neon.tech) by default (local Docker Postgres available as a profile).
 
-The matching Flutter client lives at **[spiceroute-mobile](https://github.com/TintWaiYanMin/spiceroute-mobile)**.
+The matching Flutter client lives at **[spiceroute-flutter](https://github.com/tintwym/spiceroute-flutter)**.
 
 ## What's in here
 
