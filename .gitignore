@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environment
+.env
+.env.local
+*.env
+!*.env.example
+
+# Database / storage
+spiceroute_images/
+*.sqlite
+*.db
+
+# Test artifacts
+tests/_test_images/
+
+# Editor
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Docker
+.docker/
