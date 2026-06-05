@@ -1,14 +1,14 @@
 from app.models.favorite import Favorite
-from app.models.mecipe import Ingredient, Mecipe, Step
-from app.models.tag import Tag, mecipe_tags
+from app.models.spice_route import Ingredient, SpiceRoute, Step
+from app.models.tag import Tag, spice_route_tags
 from app.models.user import User
 
 __all__ = [
     "User",
-    "Mecipe",
+    "SpiceRoute",
     "Ingredient",
     "Step",
     "Tag",
-    "mecipe_tags",
+    "spice_route_tags",
     "Favorite",
 ]

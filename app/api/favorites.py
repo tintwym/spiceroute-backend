@@ -6,9 +6,9 @@ from sqlalchemy import delete, or_, select
 
 from app.core.deps import CurrentUser, DbSession
 from app.models.favorite import Favorite
-from app.models.mecipe import Mecipe
+from app.models.spice_route import SpiceRoute
 from app.models.user import User
-from app.schemas.mecipe import MecipeSummary
+from app.schemas.spice_route import SpiceRouteSummary
 from app.services.serialization import to_summary
 
 router = APIRouter()
@@ -19,39 +19,39 @@ class FavoriteToggleResponse(BaseModel):
 
 
 @router.post(
-    "/mecipes/{mecipe_id}/favorite",
+    "/spice_routes/{spice_route_id}/favorite",
     response_model=FavoriteToggleResponse,
     tags=["favorites"],
 )
 async def toggle_favorite(
-    mecipe_id: UUID, db: DbSession, user: CurrentUser
+    spice_route_id: UUID, db: DbSession, user: CurrentUser
 ) -> FavoriteToggleResponse:
-    mecipe = await db.get(Mecipe, mecipe_id)
-    if not mecipe:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="mecipe not found")
-    if not mecipe.is_public and mecipe.user_id != user.id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="mecipe not found")
+    spice_route = await db.get(SpiceRoute, spice_route_id)
+    if not spice_route:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="spice_route not found")
+    if not spice_route.is_public and spice_route.user_id != user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="spice_route not found")
 
-    existing = await db.get(Favorite, (user.id, mecipe_id))
+    existing = await db.get(Favorite, (user.id, spice_route_id))
     if existing:
         await db.delete(existing)
         await db.commit()
         return FavoriteToggleResponse(favorited=False)
 
-    db.add(Favorite(user_id=user.id, mecipe_id=mecipe_id))
+    db.add(Favorite(user_id=user.id, spice_route_id=spice_route_id))
     await db.commit()
     return FavoriteToggleResponse(favorited=True)
 
 
 @router.delete(
-    "/mecipes/{mecipe_id}/favorite",
+    "/spice_routes/{spice_route_id}/favorite",
     status_code=status.HTTP_204_NO_CONTENT,
     tags=["favorites"],
 )
-async def remove_favorite(mecipe_id: UUID, db: DbSession, user: CurrentUser):
+async def remove_favorite(spice_route_id: UUID, db: DbSession, user: CurrentUser):
     await db.execute(
         delete(Favorite).where(
-            Favorite.user_id == user.id, Favorite.mecipe_id == mecipe_id
+            Favorite.user_id == user.id, Favorite.spice_route_id == spice_route_id
         )
     )
     await db.commit()
@@ -59,40 +59,40 @@ async def remove_favorite(mecipe_id: UUID, db: DbSession, user: CurrentUser):
 
 @router.get(
     "/me/favorites",
-    response_model=list[MecipeSummary],
+    response_model=list[SpiceRouteSummary],
     tags=["favorites"],
 )
 async def list_my_favorites(
     db: DbSession, user: CurrentUser
-) -> list[MecipeSummary]:
-    fav_subq = select(Favorite.mecipe_id).where(Favorite.user_id == user.id)
-    # Apply the same visibility rule as the rest of the API: a mecipe is
+) -> list[SpiceRouteSummary]:
+    fav_subq = select(Favorite.spice_route_id).where(Favorite.user_id == user.id)
+    # Apply the same visibility rule as the rest of the API: a spice_route is
     # visible to a user if it's public OR they own it. If someone made a
-    # public mecipe private after you favorited it, you lose access here too.
-    # This keeps /me/favorites and /mecipes?favorites_only=true in sync.
-    mecipes = (
+    # public spice_route private after you favorited it, you lose access here
+    # too. Keeps /me/favorites and /spice_routes?favorites_only=true in sync.
+    spice_routes = (
         await db.scalars(
-            select(Mecipe)
+            select(SpiceRoute)
             .where(
-                Mecipe.id.in_(fav_subq),
-                or_(Mecipe.is_public.is_(True), Mecipe.user_id == user.id),
+                SpiceRoute.id.in_(fav_subq),
+                or_(SpiceRoute.is_public.is_(True), SpiceRoute.user_id == user.id),
             )
-            .order_by(Mecipe.created_at.desc())
+            .order_by(SpiceRoute.created_at.desc())
         )
     ).unique().all()
-    user_ids = {r.user_id for r in mecipes}
+    user_ids = {r.user_id for r in spice_routes}
     owners = {
         row.id: row.display_name
         for row in await db.execute(
             select(User.id, User.display_name).where(User.id.in_(user_ids))
         )
     }
-    favorite_ids = {r.id for r in mecipes}
+    favorite_ids = {r.id for r in spice_routes}
     return [
         to_summary(
             r,
             owner_display_name=owners.get(r.user_id, ""),
             favorite_ids=favorite_ids,
         )
-        for r in mecipes
+        for r in spice_routes
     ]

@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from app.core.config import get_settings
 from app.core.deps import CurrentUser, DbSession
-from app.models.mecipe import Mecipe
+from app.models.spice_route import SpiceRoute
 from app.services.serialization import image_url
 from app.storage import get_storage
 
@@ -24,18 +24,18 @@ class ImageUploadResponse(BaseModel):
     image_url: str
 
 
-@router.post("/{mecipe_id}/image", response_model=ImageUploadResponse)
-async def upload_mecipe_image(
-    mecipe_id: UUID,
+@router.post("/{spice_route_id}/image", response_model=ImageUploadResponse)
+async def upload_spice_route_image(
+    spice_route_id: UUID,
     db: DbSession,
     user: CurrentUser,
     file: UploadFile = File(...),
 ) -> ImageUploadResponse:
-    mecipe = await db.get(Mecipe, mecipe_id)
-    if not mecipe:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="mecipe not found")
-    if mecipe.user_id != user.id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="not the mecipe owner")
+    spice_route = await db.get(SpiceRoute, spice_route_id)
+    if not spice_route:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="spice_route not found")
+    if spice_route.user_id != user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="not the spice_route owner")
 
     content_type = (file.content_type or "").lower()
     if content_type not in ALLOWED_MIME:
@@ -66,8 +66,8 @@ async def upload_mecipe_image(
     # Save new path to DB BEFORE deleting the old file. If the commit fails
     # we'd rather orphan a (just-saved) blob than be left with a DB row
     # pointing to a deleted file.
-    old_path = mecipe.image_path
-    mecipe.image_path = saved_path
+    old_path = spice_route.image_path
+    spice_route.image_path = saved_path
     try:
         await db.commit()
     except Exception:

@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api import auth, favorites, health, mecipes, tags, uploads
+from app.api import auth, favorites, health, spice_routes, tags, uploads
 from app.core.config import get_settings
 
 settings = get_settings()
@@ -34,9 +34,9 @@ app.add_middleware(
 
 app.include_router(health.router)
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
-app.include_router(mecipes.router, prefix="/mecipes", tags=["mecipes"])
+app.include_router(spice_routes.router, prefix="/spice_routes", tags=["spice_routes"])
 app.include_router(tags.router, prefix="/tags", tags=["tags"])
-app.include_router(uploads.router, prefix="/mecipes", tags=["uploads"])
+app.include_router(uploads.router, prefix="/spice_routes", tags=["uploads"])
 app.include_router(favorites.router, tags=["favorites"])
 
 app.mount(

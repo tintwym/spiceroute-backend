@@ -12,17 +12,17 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
-    app_name: str = "Mecipe API"
+    app_name: str = "SpiceRoute API"
     debug: bool = False
 
-    database_url: str = "postgresql+asyncpg://mecipe:mecipe@db:5432/mecipe"
+    database_url: str = "postgresql+asyncpg://spiceroute:spiceroute@db:5432/spiceroute"
 
     jwt_secret: str = "change-me"
     jwt_algorithm: str = "HS256"
     access_token_minutes: int = 60
     refresh_token_days: int = 30
 
-    image_storage_dir: str = "/var/mecipe-images"
+    image_storage_dir: str = "/var/spiceroute-images"
     public_image_base_url: str = "http://localhost:8000/images"
     max_image_bytes: int = 5 * 1024 * 1024
 

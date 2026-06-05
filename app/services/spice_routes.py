@@ -1,9 +1,9 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.mecipe import Ingredient, Step
+from app.models.spice_route import Ingredient, Step
 from app.models.tag import Tag
-from app.schemas.mecipe import IngredientIn, StepIn
+from app.schemas.spice_route import IngredientIn, StepIn
 
 
 async def upsert_tags(db: AsyncSession, names: list[str]) -> list[Tag]:

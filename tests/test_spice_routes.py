@@ -4,7 +4,7 @@ from httpx import AsyncClient
 from tests.conftest import auth
 
 
-def sample_mecipe(**overrides):
+def sample_spice_route(**overrides):
     base = {
         "title": "Pad See Ew",
         "description": "Thai stir-fried noodles",
@@ -29,8 +29,8 @@ def sample_mecipe(**overrides):
 
 
 @pytest.mark.asyncio
-async def test_create_and_get_mecipe(client: AsyncClient, alice_token: str):
-    res = await client.post("/mecipes", json=sample_mecipe(), headers=auth(alice_token))
+async def test_create_and_get_spice_route(client: AsyncClient, alice_token: str):
+    res = await client.post("/spice_routes", json=sample_spice_route(), headers=auth(alice_token))
     assert res.status_code == 201, res.text
     body = res.json()
     rid = body["id"]
@@ -40,14 +40,14 @@ async def test_create_and_get_mecipe(client: AsyncClient, alice_token: str):
     assert sorted(t["name"] for t in body["tags"]) == ["noodles", "thai", "weeknight"]
     assert body["owner"]["display_name"] == "Alice"
 
-    res = await client.get(f"/mecipes/{rid}", headers=auth(alice_token))
+    res = await client.get(f"/spice_routes/{rid}", headers=auth(alice_token))
     assert res.status_code == 200
     assert res.json()["id"] == rid
 
 
 @pytest.mark.asyncio
 async def test_create_requires_auth(client: AsyncClient):
-    res = await client.post("/mecipes", json=sample_mecipe())
+    res = await client.post("/spice_routes", json=sample_spice_route())
     assert res.status_code == 401
 
 
@@ -56,26 +56,26 @@ async def test_list_returns_public_and_own(
     client: AsyncClient, alice_token: str, bob_token: str
 ):
     await client.post(
-        "/mecipes",
-        json=sample_mecipe(title="Alice private", is_public=False),
+        "/spice_routes",
+        json=sample_spice_route(title="Alice private", is_public=False),
         headers=auth(alice_token),
     )
     await client.post(
-        "/mecipes",
-        json=sample_mecipe(title="Alice public", is_public=True),
+        "/spice_routes",
+        json=sample_spice_route(title="Alice public", is_public=True),
         headers=auth(alice_token),
     )
     await client.post(
-        "/mecipes",
-        json=sample_mecipe(title="Bob public", is_public=True),
+        "/spice_routes",
+        json=sample_spice_route(title="Bob public", is_public=True),
         headers=auth(bob_token),
     )
 
-    res = await client.get("/mecipes")
+    res = await client.get("/spice_routes")
     titles = {r["title"] for r in res.json()["items"]}
     assert titles == {"Alice public", "Bob public"}
 
-    res = await client.get("/mecipes", headers=auth(alice_token))
+    res = await client.get("/spice_routes", headers=auth(alice_token))
     titles = {r["title"] for r in res.json()["items"]}
     assert titles == {"Alice public", "Alice private", "Bob public"}
 
@@ -83,16 +83,16 @@ async def test_list_returns_public_and_own(
 @pytest.mark.asyncio
 async def test_search_by_title(client: AsyncClient, alice_token: str):
     await client.post(
-        "/mecipes",
-        json=sample_mecipe(title="Spaghetti Carbonara"),
+        "/spice_routes",
+        json=sample_spice_route(title="Spaghetti Carbonara"),
         headers=auth(alice_token),
     )
     await client.post(
-        "/mecipes",
-        json=sample_mecipe(title="Lemon Tart"),
+        "/spice_routes",
+        json=sample_spice_route(title="Lemon Tart"),
         headers=auth(alice_token),
     )
-    res = await client.get("/mecipes?q=spaghetti")
+    res = await client.get("/spice_routes?q=spaghetti")
     titles = [r["title"] for r in res.json()["items"]]
     assert titles == ["Spaghetti Carbonara"]
 
@@ -100,22 +100,22 @@ async def test_search_by_title(client: AsyncClient, alice_token: str):
 @pytest.mark.asyncio
 async def test_search_by_ingredient(client: AsyncClient, alice_token: str):
     await client.post(
-        "/mecipes",
-        json=sample_mecipe(
+        "/spice_routes",
+        json=sample_spice_route(
             title="Carbonara",
             ingredients=[{"name": "guanciale", "quantity": 100, "unit": "g"}],
         ),
         headers=auth(alice_token),
     )
     await client.post(
-        "/mecipes",
-        json=sample_mecipe(
+        "/spice_routes",
+        json=sample_spice_route(
             title="Cacio e Pepe",
             ingredients=[{"name": "pecorino", "quantity": 50, "unit": "g"}],
         ),
         headers=auth(alice_token),
     )
-    res = await client.get("/mecipes?q=guanciale")
+    res = await client.get("/spice_routes?q=guanciale")
     titles = [r["title"] for r in res.json()["items"]]
     assert titles == ["Carbonara"]
 
@@ -123,32 +123,32 @@ async def test_search_by_ingredient(client: AsyncClient, alice_token: str):
 @pytest.mark.asyncio
 async def test_filter_by_tag_and_max_minutes(client: AsyncClient, alice_token: str):
     await client.post(
-        "/mecipes",
-        json=sample_mecipe(title="Quick Thai", tags=["thai"], prep_minutes=5, cook_minutes=10),
+        "/spice_routes",
+        json=sample_spice_route(title="Quick Thai", tags=["thai"], prep_minutes=5, cook_minutes=10),
         headers=auth(alice_token),
     )
     await client.post(
-        "/mecipes",
-        json=sample_mecipe(title="Slow Italian", tags=["italian"], prep_minutes=30, cook_minutes=60),
+        "/spice_routes",
+        json=sample_spice_route(title="Slow Italian", tags=["italian"], prep_minutes=30, cook_minutes=60),
         headers=auth(alice_token),
     )
-    res = await client.get("/mecipes?tag=thai")
+    res = await client.get("/spice_routes?tag=thai")
     titles = [r["title"] for r in res.json()["items"]]
     assert titles == ["Quick Thai"]
 
-    res = await client.get("/mecipes?max_minutes=30")
+    res = await client.get("/spice_routes?max_minutes=30")
     titles = [r["title"] for r in res.json()["items"]]
     assert titles == ["Quick Thai"]
 
 
 @pytest.mark.asyncio
-async def test_update_mecipe(client: AsyncClient, alice_token: str):
+async def test_update_spice_route(client: AsyncClient, alice_token: str):
     create = await client.post(
-        "/mecipes", json=sample_mecipe(), headers=auth(alice_token)
+        "/spice_routes", json=sample_spice_route(), headers=auth(alice_token)
     )
     rid = create.json()["id"]
     res = await client.patch(
-        f"/mecipes/{rid}",
+        f"/spice_routes/{rid}",
         json={"title": "Updated", "tags": ["dessert"]},
         headers=auth(alice_token),
     )
@@ -163,48 +163,48 @@ async def test_non_owner_cannot_update_or_delete(
     client: AsyncClient, alice_token: str, bob_token: str
 ):
     create = await client.post(
-        "/mecipes", json=sample_mecipe(), headers=auth(alice_token)
+        "/spice_routes", json=sample_spice_route(), headers=auth(alice_token)
     )
     rid = create.json()["id"]
     res = await client.patch(
-        f"/mecipes/{rid}", json={"title": "Bob's edit"}, headers=auth(bob_token)
+        f"/spice_routes/{rid}", json={"title": "Bob's edit"}, headers=auth(bob_token)
     )
     assert res.status_code == 403
-    res = await client.delete(f"/mecipes/{rid}", headers=auth(bob_token))
+    res = await client.delete(f"/spice_routes/{rid}", headers=auth(bob_token))
     assert res.status_code == 403
 
 
 @pytest.mark.asyncio
-async def test_delete_mecipe(client: AsyncClient, alice_token: str):
+async def test_delete_spice_route(client: AsyncClient, alice_token: str):
     create = await client.post(
-        "/mecipes", json=sample_mecipe(), headers=auth(alice_token)
+        "/spice_routes", json=sample_spice_route(), headers=auth(alice_token)
     )
     rid = create.json()["id"]
-    res = await client.delete(f"/mecipes/{rid}", headers=auth(alice_token))
+    res = await client.delete(f"/spice_routes/{rid}", headers=auth(alice_token))
     assert res.status_code == 204
-    res = await client.get(f"/mecipes/{rid}", headers=auth(alice_token))
+    res = await client.get(f"/spice_routes/{rid}", headers=auth(alice_token))
     assert res.status_code == 404
 
 
 @pytest.mark.asyncio
-async def test_private_mecipe_invisible_to_others(
+async def test_private_spice_route_invisible_to_others(
     client: AsyncClient, alice_token: str, bob_token: str
 ):
     create = await client.post(
-        "/mecipes",
-        json=sample_mecipe(is_public=False),
+        "/spice_routes",
+        json=sample_spice_route(is_public=False),
         headers=auth(alice_token),
     )
     rid = create.json()["id"]
-    res = await client.get(f"/mecipes/{rid}", headers=auth(bob_token))
+    res = await client.get(f"/spice_routes/{rid}", headers=auth(bob_token))
     assert res.status_code == 404
 
 
 @pytest.mark.asyncio
 async def test_tags_endpoint(client: AsyncClient, alice_token: str):
     await client.post(
-        "/mecipes",
-        json=sample_mecipe(tags=["Thai", "spicy"]),
+        "/spice_routes",
+        json=sample_spice_route(tags=["Thai", "spicy"]),
         headers=auth(alice_token),
     )
     res = await client.get("/tags")

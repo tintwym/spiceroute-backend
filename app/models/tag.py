@@ -3,10 +3,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, UUIDPrimaryKeyMixin
 
-mecipe_tags = Table(
-    "mecipe_tags",
+spice_route_tags = Table(
+    "spice_route_tags",
     Base.metadata,
-    Column("mecipe_id", Uuid(as_uuid=True), ForeignKey("mecipes.id", ondelete="CASCADE"), primary_key=True),
+    Column("spice_route_id", Uuid(as_uuid=True), ForeignKey("spice_routes.id", ondelete="CASCADE"), primary_key=True),
     Column("tag_id", Uuid(as_uuid=True), ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True),
 )
 

@@ -14,7 +14,7 @@ PNG_BYTES = (
 )
 
 
-def make_mecipe_payload(title: str = "T"):
+def make_spice_route_payload(title: str = "T"):
     return {
         "title": title,
         "ingredients": [{"name": "x"}],
@@ -26,11 +26,11 @@ def make_mecipe_payload(title: str = "T"):
 @pytest.mark.asyncio
 async def test_upload_image_success(client: AsyncClient, alice_token: str):
     create = await client.post(
-        "/mecipes", json=make_mecipe_payload(), headers=auth(alice_token)
+        "/spice_routes", json=make_spice_route_payload(), headers=auth(alice_token)
     )
     rid = create.json()["id"]
     res = await client.post(
-        f"/mecipes/{rid}/image",
+        f"/spice_routes/{rid}/image",
         files={"file": ("hero.png", io.BytesIO(PNG_BYTES), "image/png")},
         headers=auth(alice_token),
     )
@@ -38,18 +38,18 @@ async def test_upload_image_success(client: AsyncClient, alice_token: str):
     assert res.json()["image_url"].startswith("http")
     assert res.json()["image_url"].endswith(".png")
 
-    detail = await client.get(f"/mecipes/{rid}", headers=auth(alice_token))
+    detail = await client.get(f"/spice_routes/{rid}", headers=auth(alice_token))
     assert detail.json()["image_url"]
 
 
 @pytest.mark.asyncio
 async def test_upload_rejects_non_image(client: AsyncClient, alice_token: str):
     create = await client.post(
-        "/mecipes", json=make_mecipe_payload(), headers=auth(alice_token)
+        "/spice_routes", json=make_spice_route_payload(), headers=auth(alice_token)
     )
     rid = create.json()["id"]
     res = await client.post(
-        f"/mecipes/{rid}/image",
+        f"/spice_routes/{rid}/image",
         files={"file": ("evil.exe", io.BytesIO(b"MZ"), "application/octet-stream")},
         headers=auth(alice_token),
     )
@@ -61,11 +61,11 @@ async def test_upload_requires_owner(
     client: AsyncClient, alice_token: str, bob_token: str
 ):
     create = await client.post(
-        "/mecipes", json=make_mecipe_payload(), headers=auth(alice_token)
+        "/spice_routes", json=make_spice_route_payload(), headers=auth(alice_token)
     )
     rid = create.json()["id"]
     res = await client.post(
-        f"/mecipes/{rid}/image",
+        f"/spice_routes/{rid}/image",
         files={"file": ("hero.png", io.BytesIO(PNG_BYTES), "image/png")},
         headers=auth(bob_token),
     )
@@ -75,11 +75,11 @@ async def test_upload_requires_owner(
 @pytest.mark.asyncio
 async def test_upload_requires_auth(client: AsyncClient, alice_token: str):
     create = await client.post(
-        "/mecipes", json=make_mecipe_payload(), headers=auth(alice_token)
+        "/spice_routes", json=make_spice_route_payload(), headers=auth(alice_token)
     )
     rid = create.json()["id"]
     res = await client.post(
-        f"/mecipes/{rid}/image",
+        f"/spice_routes/{rid}/image",
         files={"file": ("hero.png", io.BytesIO(PNG_BYTES), "image/png")},
     )
     assert res.status_code == 401
@@ -94,11 +94,11 @@ async def test_upload_uses_mime_derived_extension_not_filename(
     and the browser would treat it as a download.
     """
     create = await client.post(
-        "/mecipes", json=make_mecipe_payload(), headers=auth(alice_token)
+        "/spice_routes", json=make_spice_route_payload(), headers=auth(alice_token)
     )
     rid = create.json()["id"]
     res = await client.post(
-        f"/mecipes/{rid}/image",
+        f"/spice_routes/{rid}/image",
         files={"file": ("evil.png.exe", io.BytesIO(PNG_BYTES), "image/png")},
         headers=auth(alice_token),
     )
@@ -113,33 +113,33 @@ async def test_upload_replaces_existing_image(
     client: AsyncClient, alice_token: str
 ):
     create = await client.post(
-        "/mecipes", json=make_mecipe_payload(), headers=auth(alice_token)
+        "/spice_routes", json=make_spice_route_payload(), headers=auth(alice_token)
     )
     rid = create.json()["id"]
     first = await client.post(
-        f"/mecipes/{rid}/image",
+        f"/spice_routes/{rid}/image",
         files={"file": ("a.png", io.BytesIO(PNG_BYTES), "image/png")},
         headers=auth(alice_token),
     )
     second = await client.post(
-        f"/mecipes/{rid}/image",
+        f"/spice_routes/{rid}/image",
         files={"file": ("b.png", io.BytesIO(PNG_BYTES), "image/png")},
         headers=auth(alice_token),
     )
     assert first.json()["image_url"] != second.json()["image_url"]
-    # New URL should be the canonical one in the mecipe detail
-    detail = await client.get(f"/mecipes/{rid}", headers=auth(alice_token))
+    # New URL should be the canonical one in the spice_route detail
+    detail = await client.get(f"/spice_routes/{rid}", headers=auth(alice_token))
     assert detail.json()["image_url"] == second.json()["image_url"]
 
 
 @pytest.mark.asyncio
 async def test_upload_rejects_empty(client: AsyncClient, alice_token: str):
     create = await client.post(
-        "/mecipes", json=make_mecipe_payload(), headers=auth(alice_token)
+        "/spice_routes", json=make_spice_route_payload(), headers=auth(alice_token)
     )
     rid = create.json()["id"]
     res = await client.post(
-        f"/mecipes/{rid}/image",
+        f"/spice_routes/{rid}/image",
         files={"file": ("blank.png", io.BytesIO(b""), "image/png")},
         headers=auth(alice_token),
     )

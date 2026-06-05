@@ -14,9 +14,9 @@ class Favorite(Base):
         ForeignKey("users.id", ondelete="CASCADE"),
         primary_key=True,
     )
-    mecipe_id: Mapped[UUID] = mapped_column(
+    spice_route_id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True),
-        ForeignKey("mecipes.id", ondelete="CASCADE"),
+        ForeignKey("spice_routes.id", ondelete="CASCADE"),
         primary_key=True,
     )
     created_at: Mapped[str] = mapped_column(

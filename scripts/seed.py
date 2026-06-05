@@ -1,6 +1,6 @@
-"""Seed the database with a demo user and a starter set of mecipes.
+"""Seed the database with a demo user and a starter set of spice_routes.
 
-Idempotent: re-running won't duplicate the demo user or their mecipes.
+Idempotent: re-running won't duplicate the demo user or their spice_routes.
 
 Usage (inside the api container):
     docker compose exec api python -m scripts.seed
@@ -14,7 +14,7 @@ from sqlalchemy import select
 
 from app.core.security import hash_password
 from app.db.session import AsyncSessionLocal
-from app.models.mecipe import Ingredient, Mecipe, Step
+from app.models.spice_route import Ingredient, SpiceRoute, Step
 from app.models.tag import Tag
 from app.models.user import User
 
@@ -22,8 +22,8 @@ DEMO_EMAIL = "demo@example.com"
 DEMO_PASSWORD = "demopass1"
 DEMO_NAME = "Demo Cook"
 
-# Each mecipe: title, desc, prep, cook, servings, tags, ingredients (qty, unit, name), steps
-MECIPES: list[dict[str, Any]] = [
+# Each spice_route: title, desc, prep, cook, servings, tags, ingredients (qty, unit, name), steps
+SPICE_ROUTES: list[dict[str, Any]] = [
     {
         "title": "Spaghetti Carbonara",
         "description": "The real Roman version: eggs, pecorino, guanciale, pepper. No cream.",
@@ -335,11 +335,11 @@ async def main() -> None:
         existing_titles = {
             r.title
             for r in (
-                await db.scalars(select(Mecipe).where(Mecipe.user_id == user.id))
+                await db.scalars(select(SpiceRoute).where(SpiceRoute.user_id == user.id))
             ).all()
         }
 
-        all_tag_names = {n for r in MECIPES for n in r["tags"]}
+        all_tag_names = {n for r in SPICE_ROUTES for n in r["tags"]}
         existing_tags = {
             t.name: t
             for t in (
@@ -354,10 +354,10 @@ async def main() -> None:
         await db.flush()
 
         added = 0
-        for spec in MECIPES:
+        for spec in SPICE_ROUTES:
             if spec["title"] in existing_titles:
                 continue
-            mecipe = Mecipe(
+            spice_route = SpiceRoute(
                 user_id=user.id,
                 title=spec["title"],
                 description=spec["description"],
@@ -380,11 +380,11 @@ async def main() -> None:
                 ],
                 tags=[existing_tags[name] for name in spec["tags"]],
             )
-            db.add(mecipe)
+            db.add(spice_route)
             added += 1
 
         await db.commit()
-        print(f"Added {added} new mecipes (skipped {len(MECIPES) - added} duplicates).")
+        print(f"Added {added} new spice_routes (skipped {len(SPICE_ROUTES) - added} duplicates).")
         print(f"\nLog in at the Flutter app with:\n  email:    {DEMO_EMAIL}\n  password: {DEMO_PASSWORD}")
 
 

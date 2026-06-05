@@ -1,7 +1,7 @@
 [project]
-name = "mecipe-api"
+name = "spiceroute-api"
 version = "0.1.0"
-description = "Mecipe management backend (FastAPI)"
+description = "SpiceRoute management backend (FastAPI)"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115.0",

@@ -1,12 +1,12 @@
 from uuid import UUID
 
 from app.core.config import get_settings
-from app.models.mecipe import Mecipe
-from app.schemas.mecipe import (
+from app.models.spice_route import SpiceRoute
+from app.schemas.spice_route import (
     IngredientOut,
-    MecipeDetail,
-    MecipeOwner,
-    MecipeSummary,
+    SpiceRouteDetail,
+    SpiceRouteOwner,
+    SpiceRouteSummary,
     StepOut,
     TagOut,
 )
@@ -21,39 +21,39 @@ def image_url(image_path: str | None) -> str | None:
 
 
 def to_summary(
-    mecipe: Mecipe,
+    spice_route: SpiceRoute,
     *,
     owner_display_name: str,
     favorite_ids: set[UUID] | None = None,
-) -> MecipeSummary:
-    return MecipeSummary(
-        id=mecipe.id,
-        title=mecipe.title,
-        description=mecipe.description,
-        prep_minutes=mecipe.prep_minutes,
-        cook_minutes=mecipe.cook_minutes,
-        servings=mecipe.servings,
-        image_url=image_url(mecipe.image_path),
-        is_public=mecipe.is_public,
-        owner=MecipeOwner(id=mecipe.user_id, display_name=owner_display_name),
-        tags=[TagOut.model_validate(t) for t in mecipe.tags],
-        is_favorite=bool(favorite_ids and mecipe.id in favorite_ids),
+) -> SpiceRouteSummary:
+    return SpiceRouteSummary(
+        id=spice_route.id,
+        title=spice_route.title,
+        description=spice_route.description,
+        prep_minutes=spice_route.prep_minutes,
+        cook_minutes=spice_route.cook_minutes,
+        servings=spice_route.servings,
+        image_url=image_url(spice_route.image_path),
+        is_public=spice_route.is_public,
+        owner=SpiceRouteOwner(id=spice_route.user_id, display_name=owner_display_name),
+        tags=[TagOut.model_validate(t) for t in spice_route.tags],
+        is_favorite=bool(favorite_ids and spice_route.id in favorite_ids),
     )
 
 
 def to_detail(
-    mecipe: Mecipe,
+    spice_route: SpiceRoute,
     *,
     owner_display_name: str,
     favorite_ids: set[UUID] | None = None,
-) -> MecipeDetail:
+) -> SpiceRouteDetail:
     summary = to_summary(
-        mecipe,
+        spice_route,
         owner_display_name=owner_display_name,
         favorite_ids=favorite_ids,
     )
-    return MecipeDetail(
+    return SpiceRouteDetail(
         **summary.model_dump(),
-        ingredients=[IngredientOut.model_validate(i) for i in mecipe.ingredients],
-        steps=[StepOut.model_validate(s) for s in mecipe.steps],
+        ingredients=[IngredientOut.model_validate(i) for i in spice_route.ingredients],
+        steps=[StepOut.model_validate(s) for s in spice_route.steps],
     )

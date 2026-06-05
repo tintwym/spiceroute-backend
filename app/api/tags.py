@@ -3,7 +3,7 @@ from sqlalchemy import func, select
 
 from app.core.deps import DbSession
 from app.models.tag import Tag
-from app.schemas.mecipe import TagOut
+from app.schemas.spice_route import TagOut
 
 router = APIRouter()
 

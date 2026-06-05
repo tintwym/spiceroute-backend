@@ -42,7 +42,7 @@ class TagOut(BaseModel):
     name: str
 
 
-class MecipeBase(BaseModel):
+class SpiceRouteBase(BaseModel):
     title: NameStr
     description: str | None = None
     prep_minutes: int = Field(default=0, ge=0, le=10_000)
@@ -51,7 +51,7 @@ class MecipeBase(BaseModel):
     is_public: bool = False
 
 
-class MecipeCreate(MecipeBase):
+class SpiceRouteCreate(SpiceRouteBase):
     ingredients: list[IngredientIn] = Field(default_factory=list, max_length=200)
     steps: list[StepIn] = Field(default_factory=list, max_length=200)
     tags: list[str] = Field(default_factory=list, max_length=50)
@@ -69,7 +69,7 @@ class MecipeCreate(MecipeBase):
         return cleaned
 
 
-class MecipeUpdate(BaseModel):
+class SpiceRouteUpdate(BaseModel):
     title: NameStr | None = None
     description: str | None = None
     prep_minutes: int | None = Field(default=None, ge=0, le=10_000)
@@ -94,14 +94,14 @@ class MecipeUpdate(BaseModel):
         return cleaned
 
 
-class MecipeOwner(BaseModel):
+class SpiceRouteOwner(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
     display_name: str
 
 
-class MecipeSummary(BaseModel):
+class SpiceRouteSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
@@ -112,18 +112,18 @@ class MecipeSummary(BaseModel):
     servings: int
     image_url: str | None
     is_public: bool
-    owner: MecipeOwner
+    owner: SpiceRouteOwner
     tags: list[TagOut]
     is_favorite: bool = False
 
 
-class MecipeDetail(MecipeSummary):
+class SpiceRouteDetail(SpiceRouteSummary):
     ingredients: list[IngredientOut]
     steps: list[StepOut]
 
 
-class MecipeListResponse(BaseModel):
-    items: list[MecipeSummary]
+class SpiceRouteListResponse(BaseModel):
+    items: list[SpiceRouteSummary]
     total: int
     limit: int
     offset: int

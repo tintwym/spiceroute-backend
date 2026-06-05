@@ -37,7 +37,7 @@ def upgrade() -> None:
     op.create_index("ix_tags_name", "tags", ["name"])
 
     op.create_table(
-        "mecipes",
+        "spice_routes",
         sa.Column("id", sa.Uuid(), primary_key=True),
         sa.Column("user_id", sa.Uuid(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
         sa.Column("title", sa.String(200), nullable=False),
@@ -49,28 +49,28 @@ def upgrade() -> None:
         sa.Column("is_public", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
     )
-    op.create_index("ix_mecipes_user_id", "mecipes", ["user_id"])
-    op.create_index("ix_mecipes_title", "mecipes", ["title"])
-    op.create_index("ix_mecipes_is_public", "mecipes", ["is_public"])
+    op.create_index("ix_spice_routes_user_id", "spice_routes", ["user_id"])
+    op.create_index("ix_spice_routes_title", "spice_routes", ["title"])
+    op.create_index("ix_spice_routes_is_public", "spice_routes", ["is_public"])
     op.create_index(
-        "ix_mecipes_public_recent",
-        "mecipes",
+        "ix_spice_routes_public_recent",
+        "spice_routes",
         ["is_public", sa.text("created_at DESC")],
     )
     op.execute(
-        "CREATE INDEX ix_mecipes_title_trgm ON mecipes USING GIN (lower(title) gin_trgm_ops)"
+        "CREATE INDEX ix_spice_routes_title_trgm ON spice_routes USING GIN (lower(title) gin_trgm_ops)"
     )
 
     op.create_table(
         "ingredients",
         sa.Column("id", sa.Uuid(), primary_key=True),
-        sa.Column("mecipe_id", sa.Uuid(), sa.ForeignKey("mecipes.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("spice_route_id", sa.Uuid(), sa.ForeignKey("spice_routes.id", ondelete="CASCADE"), nullable=False),
         sa.Column("quantity", sa.Numeric(10, 3), nullable=True),
         sa.Column("unit", sa.String(32), nullable=True),
         sa.Column("name", sa.String(200), nullable=False),
         sa.Column("sort_order", sa.Integer(), nullable=False, server_default="0"),
     )
-    op.create_index("ix_ingredients_mecipe_id", "ingredients", ["mecipe_id"])
+    op.create_index("ix_ingredients_spice_route_id", "ingredients", ["spice_route_id"])
     op.create_index("ix_ingredients_name", "ingredients", ["name"])
     op.execute(
         "CREATE INDEX ix_ingredients_name_trgm ON ingredients USING GIN (lower(name) gin_trgm_ops)"
@@ -79,41 +79,41 @@ def upgrade() -> None:
     op.create_table(
         "steps",
         sa.Column("id", sa.Uuid(), primary_key=True),
-        sa.Column("mecipe_id", sa.Uuid(), sa.ForeignKey("mecipes.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("spice_route_id", sa.Uuid(), sa.ForeignKey("spice_routes.id", ondelete="CASCADE"), nullable=False),
         sa.Column("sort_order", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("body", sa.Text(), nullable=False),
     )
-    op.create_index("ix_steps_mecipe_id", "steps", ["mecipe_id"])
+    op.create_index("ix_steps_spice_route_id", "steps", ["spice_route_id"])
 
     op.create_table(
-        "mecipe_tags",
-        sa.Column("mecipe_id", sa.Uuid(), sa.ForeignKey("mecipes.id", ondelete="CASCADE"), primary_key=True),
+        "spice_route_tags",
+        sa.Column("spice_route_id", sa.Uuid(), sa.ForeignKey("spice_routes.id", ondelete="CASCADE"), primary_key=True),
         sa.Column("tag_id", sa.Uuid(), sa.ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True),
     )
 
     op.create_table(
         "favorites",
         sa.Column("user_id", sa.Uuid(), sa.ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
-        sa.Column("mecipe_id", sa.Uuid(), sa.ForeignKey("mecipes.id", ondelete="CASCADE"), primary_key=True),
+        sa.Column("spice_route_id", sa.Uuid(), sa.ForeignKey("spice_routes.id", ondelete="CASCADE"), primary_key=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
     )
 
 
 def downgrade() -> None:
     op.drop_table("favorites")
-    op.drop_table("mecipe_tags")
-    op.drop_index("ix_steps_mecipe_id", table_name="steps")
+    op.drop_table("spice_route_tags")
+    op.drop_index("ix_steps_spice_route_id", table_name="steps")
     op.drop_table("steps")
     op.execute("DROP INDEX IF EXISTS ix_ingredients_name_trgm")
     op.drop_index("ix_ingredients_name", table_name="ingredients")
-    op.drop_index("ix_ingredients_mecipe_id", table_name="ingredients")
+    op.drop_index("ix_ingredients_spice_route_id", table_name="ingredients")
     op.drop_table("ingredients")
-    op.execute("DROP INDEX IF EXISTS ix_mecipes_title_trgm")
-    op.drop_index("ix_mecipes_public_recent", table_name="mecipes")
-    op.drop_index("ix_mecipes_is_public", table_name="mecipes")
-    op.drop_index("ix_mecipes_title", table_name="mecipes")
-    op.drop_index("ix_mecipes_user_id", table_name="mecipes")
-    op.drop_table("mecipes")
+    op.execute("DROP INDEX IF EXISTS ix_spice_routes_title_trgm")
+    op.drop_index("ix_spice_routes_public_recent", table_name="spice_routes")
+    op.drop_index("ix_spice_routes_is_public", table_name="spice_routes")
+    op.drop_index("ix_spice_routes_title", table_name="spice_routes")
+    op.drop_index("ix_spice_routes_user_id", table_name="spice_routes")
+    op.drop_table("spice_routes")
     op.drop_index("ix_tags_name", table_name="tags")
     op.drop_table("tags")
     op.drop_index("ix_users_email", table_name="users")
