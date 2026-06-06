@@ -1,7 +1,10 @@
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
+    PYTHONDONTWRITEBYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_COMPILE_BYTECODE=1 \
+    UV_PROJECT_ENVIRONMENT=/opt/venv
 
 WORKDIR /app
 
@@ -9,27 +12,23 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=ghcr.io/astral-sh/uv:0.5.4 /uv /usr/local/bin/uv
+# uv is installed via pip from PyPI. We pin a known-good version to keep
+# builds reproducible; bump it intentionally.
+RUN pip install --no-cache-dir uv==0.5.4
 
-COPY pyproject.toml ./
-
-RUN uv pip install --system --no-cache \
-    "fastapi>=0.115.0" \
-    "uvicorn[standard]>=0.32.0" \
-    "sqlalchemy[asyncio]>=2.0.36" \
-    "asyncpg>=0.30.0" \
-    "alembic>=1.14.0" \
-    "pydantic>=2.9.2" \
-    "pydantic-settings>=2.6.1" \
-    "python-jose[cryptography]>=3.3.0" \
-    "passlib[bcrypt]>=1.7.4" \
-    "bcrypt==4.0.1" \
-    "python-multipart>=0.0.12" \
-    "email-validator>=2.2.0" \
-    "aiofiles>=24.1.0" \
-    "greenlet>=3.1.1"
+# Install dependencies first for better layer caching. The venv lives at
+# /opt/venv (outside /app) so the docker-compose `:/app` bind mount can't
+# shadow it at runtime.
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-install-project --no-dev
 
 COPY . .
+
+# Final sync now that the project itself is on disk (installs the project
+# itself into the same /opt/venv).
+RUN uv sync --frozen --no-dev
+
+ENV PATH="/opt/venv/bin:${PATH}"
 
 EXPOSE 8000
 
