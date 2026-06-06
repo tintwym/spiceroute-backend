@@ -87,7 +87,9 @@ def verify_id_token(token: str) -> FirebaseUser:
 
 
 def _parse_dev_token(token: str) -> FirebaseUser:
-    parts = token.split(":")
+    # `maxsplit=3` keeps the display-name field intact even when it itself
+    # contains colons (e.g. "dev:bob:bob@x.com:Bob: The Great").
+    parts = token.split(":", maxsplit=3)
     if len(parts) < 2 or not parts[1]:
         raise FirebaseTokenError("dev token must look like dev:<uid>")
     uid = parts[1]
