@@ -4,9 +4,13 @@ from collections.abc import AsyncGenerator
 from pathlib import Path
 
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
-os.environ.setdefault("JWT_SECRET", "test-secret")
-os.environ.setdefault("IMAGE_STORAGE_DIR", str(Path(__file__).parent / "_test_images"))
-os.environ.setdefault("PUBLIC_IMAGE_BASE_URL", "http://testserver/images")
+os.environ.setdefault("GEMINI_API_KEY", "")
+os.environ.setdefault("CORS_ORIGINS", "*")
+# Force Firebase dev-mode by pointing at a non-existent credentials path.
+# In dev-mode the verifier accepts `dev:<uid>[:<email>][:<name>]` tokens.
+os.environ.setdefault(
+    "FIREBASE_CREDENTIALS_PATH", "/tmp/__no_such_firebase_creds.json"
+)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -23,6 +27,7 @@ from app.db.base import Base  # noqa: E402
 from app.db.session import get_db  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models import *  # noqa: E402,F401,F403
+from app.services.ai import rate_limit as _rate_limit  # noqa: E402
 
 
 @pytest_asyncio.fixture
@@ -46,12 +51,22 @@ async def db_session(test_engine) -> AsyncGenerator[AsyncSession, None]:
 
 
 @pytest_asyncio.fixture
-async def client(test_engine) -> AsyncGenerator[AsyncClient, None]:
+async def client(
+    test_engine, monkeypatch
+) -> AsyncGenerator[AsyncClient, None]:
     SessionLocal = async_sessionmaker(test_engine, expire_on_commit=False)
 
     async def override_get_db():
         async with SessionLocal() as session:
             yield session
+
+    # Rate limiting uses Postgres-only SQL (INET cast, ON CONFLICT). In tests
+    # we run on sqlite, so swap the checks for no-ops.
+    async def _noop(*_args, **_kwargs) -> None:
+        return None
+
+    monkeypatch.setattr(_rate_limit, "check_recipe_quota", _noop)
+    monkeypatch.setattr(_rate_limit, "check_chat_quota", _noop)
 
     app.dependency_overrides[get_db] = override_get_db
     transport = ASGITransport(app=app)
@@ -60,31 +75,12 @@ async def client(test_engine) -> AsyncGenerator[AsyncClient, None]:
     app.dependency_overrides.clear()
 
 
-@pytest_asyncio.fixture
-async def alice_token(client: AsyncClient) -> str:
-    res = await client.post(
-        "/auth/register",
-        json={
-            "email": "alice@test.com",
-            "password": "supersecret",
-            "display_name": "Alice",
-        },
-    )
-    return res.json()["access_token"]
-
-
-@pytest_asyncio.fixture
-async def bob_token(client: AsyncClient) -> str:
-    res = await client.post(
-        "/auth/register",
-        json={
-            "email": "bob@test.com",
-            "password": "supersecret",
-            "display_name": "Bob",
-        },
-    )
-    return res.json()["access_token"]
-
-
-def auth(token: str) -> dict:
-    return {"Authorization": f"Bearer {token}"}
+def auth_header(uid: str = "alice", email: str | None = None, name: str | None = None) -> dict[str, str]:
+    """Construct an Authorization header that the dev-mode Firebase verifier
+    will accept. Tokens take the form `dev:<uid>[:<email>][:<name>]`."""
+    parts = ["dev", uid]
+    if email is not None or name is not None:
+        parts.append(email or "")
+    if name is not None:
+        parts.append(name)
+    return {"Authorization": "Bearer " + ":".join(parts)}

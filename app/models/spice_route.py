@@ -1,19 +1,32 @@
 from uuid import UUID
 
-from sqlalchemy import Boolean, ForeignKey, Integer, Numeric, String, Text, Uuid
+from sqlalchemy import (
+    Boolean,
+    ForeignKey,
+    Integer,
+    Numeric,
+    SmallInteger,
+    String,
+    Text,
+    Uuid,
+)
+from sqlalchemy import (
+    Enum as SAEnum,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
+from app.models.cuisine import Cuisine
 from app.models.tag import Tag, spice_route_tags
 
 
 class SpiceRoute(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "spice_routes"
 
-    user_id: Mapped[UUID] = mapped_column(
+    user_id: Mapped[UUID | None] = mapped_column(
         Uuid(as_uuid=True),
-        ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
         index=True,
     )
     title: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
@@ -22,7 +35,23 @@ class SpiceRoute(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     cook_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     servings: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     image_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    is_public: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
+    is_public: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, index=True
+    )
+
+    cuisine: Mapped[Cuisine | None] = mapped_column(
+        SAEnum(
+            Cuisine,
+            name="cuisine_type",
+            values_callable=lambda enum_cls: [m.value for m in enum_cls],
+            native_enum=True,
+        ),
+        nullable=True,
+        index=True,
+    )
+    language: Mapped[str] = mapped_column(String(8), nullable=False, default="en")
+    spice_level: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
+    is_premium: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     ingredients: Mapped[list["Ingredient"]] = relationship(
         back_populates="spice_route",

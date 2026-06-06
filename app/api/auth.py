@@ -1,82 +1,18 @@
-from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+"""Auth-adjacent endpoints.
 
-from app.core.deps import CurrentUser, DbSession
-from app.core.security import (
-    create_access_token,
-    create_refresh_token,
-    decode_token,
-    hash_password,
-    verify_password,
-)
-from app.models.user import User
-from app.schemas.auth import (
-    AccessToken,
-    LoginRequest,
-    RefreshRequest,
-    RegisterRequest,
-    TokenPair,
-    UserPublic,
-)
+We do *not* host login/register/password-reset — Firebase Auth does. Once the
+client has a Firebase ID token it just calls `GET /auth/me`, which verifies
+the token, lazily provisions a local `users` row keyed by `firebase_uid`, and
+returns the profile.
+"""
+from fastapi import APIRouter
+
+from app.core.deps import CurrentUser
+from app.schemas.user import UserPublic
 
 router = APIRouter()
 
 
-@router.post("/register", response_model=TokenPair, status_code=status.HTTP_201_CREATED)
-async def register(payload: RegisterRequest, db: DbSession) -> TokenPair:
-    user = User(
-        email=payload.email.lower(),
-        password_hash=hash_password(payload.password),
-        display_name=payload.display_name,
-    )
-    db.add(user)
-    try:
-        await db.commit()
-    except IntegrityError as exc:
-        await db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="email already registered",
-        ) from exc
-    await db.refresh(user)
-    return TokenPair(
-        access_token=create_access_token(user.id),
-        refresh_token=create_refresh_token(user.id),
-    )
-
-
-@router.post("/login", response_model=TokenPair)
-async def login(payload: LoginRequest, db: DbSession) -> TokenPair:
-    user = await db.scalar(select(User).where(User.email == payload.email.lower()))
-    if not user or not verify_password(payload.password, user.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="invalid email or password",
-        )
-    return TokenPair(
-        access_token=create_access_token(user.id),
-        refresh_token=create_refresh_token(user.id),
-    )
-
-
-@router.post("/refresh", response_model=AccessToken)
-async def refresh(payload: RefreshRequest, db: DbSession) -> AccessToken:
-    try:
-        user_id = decode_token(payload.refresh_token, expected_type="refresh")
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="invalid or expired refresh token",
-        ) from exc
-    user = await db.scalar(select(User).where(User.id == user_id))
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="user not found"
-        )
-    return AccessToken(access_token=create_access_token(user.id))
-
-
 @router.get("/me", response_model=UserPublic)
-async def me(user: CurrentUser) -> UserPublic:
+async def get_me(user: CurrentUser) -> UserPublic:
     return UserPublic.model_validate(user)

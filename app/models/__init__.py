@@ -1,4 +1,3 @@
-from app.models.favorite import Favorite
 from app.models.spice_route import Ingredient, SpiceRoute, Step
 from app.models.tag import Tag, spice_route_tags
 from app.models.user import User
@@ -10,5 +9,4 @@ __all__ = [
     "Step",
     "Tag",
     "spice_route_tags",
-    "Favorite",
 ]

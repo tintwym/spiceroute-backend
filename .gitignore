@@ -34,3 +34,6 @@ tests/_test_images/
 
 # Docker
 .docker/
+firebase-service-account.json
+*.firebase-service-account.json
+

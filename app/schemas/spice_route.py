@@ -4,7 +4,10 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.models.cuisine import Cuisine
+
 NameStr = Annotated[str, Field(min_length=1, max_length=200)]
+SUPPORTED_LANGUAGES = ("en", "zh", "th", "ja", "ko")
 
 
 class IngredientIn(BaseModel):
@@ -48,19 +51,34 @@ class SpiceRouteBase(BaseModel):
     prep_minutes: int = Field(default=0, ge=0, le=10_000)
     cook_minutes: int = Field(default=0, ge=0, le=10_000)
     servings: int = Field(default=1, ge=1, le=1000)
-    is_public: bool = False
+    cuisine: Cuisine | None = None
+    language: str = Field(default="en", min_length=2, max_length=8)
+    spice_level: int = Field(default=0, ge=0, le=3)
+    is_public: bool = True
+    is_premium: bool = False
+
+    @field_validator("language")
+    @classmethod
+    def _normalize_lang(cls, v: str) -> str:
+        v = v.strip().lower()
+        if v not in SUPPORTED_LANGUAGES:
+            raise ValueError(
+                f"language must be one of {SUPPORTED_LANGUAGES}; got {v!r}"
+            )
+        return v
 
 
 class SpiceRouteCreate(SpiceRouteBase):
     ingredients: list[IngredientIn] = Field(default_factory=list, max_length=200)
     steps: list[StepIn] = Field(default_factory=list, max_length=200)
     tags: list[str] = Field(default_factory=list, max_length=50)
+    image_url: str | None = Field(default=None, max_length=500)
 
     @field_validator("tags")
     @classmethod
     def _clean_tags(cls, v: list[str]) -> list[str]:
-        cleaned = []
-        seen = set()
+        cleaned: list[str] = []
+        seen: set[str] = set()
         for t in v:
             n = t.strip().lower()
             if n and n not in seen and len(n) <= 64:
@@ -70,22 +88,43 @@ class SpiceRouteCreate(SpiceRouteBase):
 
 
 class SpiceRouteUpdate(BaseModel):
+    """Partial update — every field is optional. Only fields that are
+    explicitly provided will be applied. Use `model_dump(exclude_unset=True)`
+    on the server side to distinguish "field absent" from "field set to None"."""
+
     title: NameStr | None = None
     description: str | None = None
     prep_minutes: int | None = Field(default=None, ge=0, le=10_000)
     cook_minutes: int | None = Field(default=None, ge=0, le=10_000)
     servings: int | None = Field(default=None, ge=1, le=1000)
+    cuisine: Cuisine | None = None
+    language: str | None = Field(default=None, min_length=2, max_length=8)
+    spice_level: int | None = Field(default=None, ge=0, le=3)
     is_public: bool | None = None
+    image_url: str | None = Field(default=None, max_length=500)
     ingredients: list[IngredientIn] | None = Field(default=None, max_length=200)
     steps: list[StepIn] | None = Field(default=None, max_length=200)
     tags: list[str] | None = Field(default=None, max_length=50)
+
+    @field_validator("language")
+    @classmethod
+    def _normalize_lang(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        v = v.strip().lower()
+        if v not in SUPPORTED_LANGUAGES:
+            raise ValueError(
+                f"language must be one of {SUPPORTED_LANGUAGES}; got {v!r}"
+            )
+        return v
 
     @field_validator("tags")
     @classmethod
     def _clean_tags(cls, v: list[str] | None) -> list[str] | None:
         if v is None:
-            return None
-        cleaned, seen = [], set()
+            return v
+        cleaned: list[str] = []
+        seen: set[str] = set()
         for t in v:
             n = t.strip().lower()
             if n and n not in seen and len(n) <= 64:
@@ -112,9 +151,12 @@ class SpiceRouteSummary(BaseModel):
     servings: int
     image_url: str | None
     is_public: bool
-    owner: SpiceRouteOwner
+    cuisine: Cuisine | None
+    language: str
+    spice_level: int
+    is_premium: bool
+    owner: SpiceRouteOwner | None = None
     tags: list[TagOut]
-    is_favorite: bool = False
 
 
 class SpiceRouteDetail(SpiceRouteSummary):
