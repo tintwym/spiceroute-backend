@@ -17,17 +17,32 @@ from app.models.spice_route import Ingredient, SpiceRoute, Step
 from app.models.tag import Tag
 from scripts.curated_data import CURATED
 
+# Per-cuisine fallback used when a curated recipe doesn't pin its own
+# `calories`. These are deliberately rounded mid-range values per serving —
+# good enough to populate the chip on Explore until each dish gets an
+# explicit estimate.
+_CUISINE_KCAL_FALLBACK = {
+    "korean": 540,
+    "japanese": 480,
+    "chinese": 560,
+    "burmese": 520,
+    "thai": 510,
+    "indian": 560,
+    "italian": 620,
+    "american_western": 700,
+    "mexican": 580,
+}
+
 
 async def main() -> None:
     async with AsyncSessionLocal() as db:
-        existing = {
-            r.title
-            for r in (
-                await db.scalars(
-                    select(SpiceRoute).where(SpiceRoute.is_premium.is_(True))
-                )
-            ).all()
-        }
+        existing_rows = (
+            await db.scalars(
+                select(SpiceRoute).where(SpiceRoute.is_premium.is_(True))
+            )
+        ).all()
+        existing_by_title = {r.title: r for r in existing_rows}
+        existing = set(existing_by_title.keys())
 
         all_tag_names = sorted({n for r in CURATED for n in r["tags"]})
         if all_tag_names:
@@ -46,9 +61,19 @@ async def main() -> None:
 
         added = 0
         skipped = 0
+        backfilled = 0
         for spec in CURATED:
             if spec["title"] in existing:
                 skipped += 1
+                # Backfill calories on rows that pre-date the calories column
+                # so the chip shows up on already-seeded environments.
+                row = existing_by_title[spec["title"]]
+                if row.calories_per_serving is None:
+                    row.calories_per_serving = spec.get(
+                        "calories",
+                        _CUISINE_KCAL_FALLBACK.get(spec["cuisine"]),
+                    )
+                    backfilled += 1
                 continue
             sr = SpiceRoute(
                 user_id=None,
@@ -62,6 +87,9 @@ async def main() -> None:
                 cuisine=Cuisine(spec["cuisine"]),
                 language=spec["language"],
                 spice_level=spec["spice_level"],
+                calories_per_serving=spec.get(
+                    "calories", _CUISINE_KCAL_FALLBACK.get(spec["cuisine"])
+                ),
                 image_path=spec["image"],
                 ingredients=[
                     Ingredient(
@@ -87,7 +115,9 @@ async def main() -> None:
 
         await db.commit()
         print(
-            f"Seeded {added} curated recipes (skipped {skipped} duplicates)."
+            f"Seeded {added} curated recipes "
+            f"(skipped {skipped} duplicates, backfilled calories on "
+            f"{backfilled})."
         )
 
 

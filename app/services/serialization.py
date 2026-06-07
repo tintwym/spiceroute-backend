@@ -40,6 +40,7 @@ def to_summary(
         language=spice_route.language,
         spice_level=spice_route.spice_level,
         is_premium=spice_route.is_premium,
+        calories_per_serving=spice_route.calories_per_serving,
         owner=owner,
         tags=[TagOut.model_validate(t) for t in spice_route.tags],
     )

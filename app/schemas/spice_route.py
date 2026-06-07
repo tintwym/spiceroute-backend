@@ -56,6 +56,7 @@ class SpiceRouteBase(BaseModel):
     spice_level: int = Field(default=0, ge=0, le=3)
     is_public: bool = True
     is_premium: bool = False
+    calories_per_serving: int | None = Field(default=None, ge=0, le=20_000)
 
     @field_validator("language")
     @classmethod
@@ -101,6 +102,7 @@ class SpiceRouteUpdate(BaseModel):
     language: str | None = Field(default=None, min_length=2, max_length=8)
     spice_level: int | None = Field(default=None, ge=0, le=3)
     is_public: bool | None = None
+    calories_per_serving: int | None = Field(default=None, ge=0, le=20_000)
     image_url: str | None = Field(default=None, max_length=500)
     ingredients: list[IngredientIn] | None = Field(default=None, max_length=200)
     steps: list[StepIn] | None = Field(default=None, max_length=200)
@@ -155,6 +157,7 @@ class SpiceRouteSummary(BaseModel):
     language: str
     spice_level: int
     is_premium: bool
+    calories_per_serving: int | None = None
     owner: SpiceRouteOwner | None = None
     tags: list[TagOut]
 

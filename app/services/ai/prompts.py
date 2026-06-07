@@ -24,6 +24,10 @@ def recipe_system_prompt(language: str, cuisine: str | None) -> str:
         f"{cuisine_clause}"
         "Be precise: include realistic prep / cook minutes, sensible servings, "
         "and a spice level from 0 (no heat) to 3 (very hot). "
+        "Estimate calories_per_serving as a single integer (kcal per serving) "
+        "based on the ingredient quantities. Round to the nearest 10. Omit "
+        "the field only if the recipe is genuinely uncountable (e.g. a sauce "
+        "consumed in tiny dollops). "
         "Ingredients must have explicit quantity + unit when applicable. "
         "Steps must be numbered chronologically and concise (one action per step). "
         "Do NOT invent images. Do NOT include markdown. Output JSON ONLY, "
@@ -62,6 +66,11 @@ RECIPE_RESPONSE_SCHEMA: dict = {
             "enum": ["en", "zh", "th", "ja", "ko"],
         },
         "spice_level": {"type": "integer", "minimum": 0, "maximum": 3},
+        "calories_per_serving": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 20000,
+        },
         "ingredients": {
             "type": "array",
             "minItems": 1,

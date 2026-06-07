@@ -127,6 +127,7 @@ async def generate_recipe(
             language=recipe.language,
             spice_level=recipe.spice_level,
             is_premium=False,
+            calories_per_serving=recipe.calories_per_serving,
             image_path=recipe.image_url,
             ingredients=build_ingredients(recipe.ingredients),
             steps=build_steps(recipe.steps),

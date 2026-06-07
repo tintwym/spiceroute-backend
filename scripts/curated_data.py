@@ -4,7 +4,7 @@ Image URLs use picsum.photos with per-recipe seeds for stability. Swap to
 real food photography (Unsplash, etc.) when you have curated images.
 """
 
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 
 class IngredientSpec(TypedDict, total=False):
@@ -26,6 +26,9 @@ class RecipeSpec(TypedDict):
     tags: list[str]
     ingredients: list[IngredientSpec]
     steps: list[str]
+    # Optional. Falls back to a per-cuisine default in the seed script when
+    # unset, so existing entries keep working without manual annotation.
+    calories: NotRequired[int]
 
 
 def _img(slug: str) -> str:

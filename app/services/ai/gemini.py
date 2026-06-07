@@ -203,6 +203,7 @@ def _stub_recipe(
             {"body": "Plate immediately and finish with garnish."},
         ],
         "tags": ["stub", "demo"],
+        "calories_per_serving": 480,
     }
 
 

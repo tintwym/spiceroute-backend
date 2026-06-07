@@ -53,6 +53,13 @@ class SpiceRoute(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     spice_level: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
     is_premium: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
+    # Approximate calories for one serving. Always optional — older imports and
+    # AI generations that fail to estimate just leave it null and the UI hides
+    # the chip.
+    calories_per_serving: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+
     ingredients: Mapped[list["Ingredient"]] = relationship(
         back_populates="spice_route",
         cascade="all, delete-orphan",

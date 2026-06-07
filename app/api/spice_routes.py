@@ -193,6 +193,7 @@ async def create_spice_route(
         language=payload.language,
         spice_level=payload.spice_level,
         is_premium=False,
+        calories_per_serving=payload.calories_per_serving,
         image_path=payload.image_url,
         ingredients=build_ingredients(payload.ingredients),
         steps=build_steps(payload.steps),
