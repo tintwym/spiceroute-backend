@@ -125,11 +125,77 @@ _CUISINE_KCAL_FALLBACK = {
     "chinese": 560,
     "burmese": 520,
     "thai": 510,
+    "vietnamese": 470,
     "indian": 560,
     "italian": 620,
     "american_western": 700,
     "mexican": 580,
 }
+
+# Per-recipe extra tags layered on top of `spec["tags"]` to power the
+# Explore filter dropdowns. Frontend `Course` and `Dietary` enums look these
+# up by name (case-insensitive) so the strings here must match the
+# `tagName` field on those Dart enums exactly.
+_EXTRA_TAGS_BY_TITLE: dict[str, list[str]] = {
+    # Korean
+    "Kimchi Jjigae":            ["soup", "dinner", "main course"],
+    "Bibimbap":                 ["main course", "lunch", "dinner"],
+    "Korean Fried Chicken":     ["main course", "dinner", "high-protein"],
+    # Japanese
+    "Tamago Donburi":           ["main course", "lunch", "quick"],
+    "Miso Glazed Salmon":       ["main course", "dinner", "high-protein", "gluten-free"],
+    "Cold Soba with Dipping Sauce": ["main course", "lunch", "vegetarian", "quick"],
+    # Chinese
+    "Mapo Tofu":                ["main course", "dinner", "vegetarian"],
+    "Egg Drop Soup":            ["soup", "appetizer", "vegetarian", "gluten-free", "quick"],
+    "Beef and Broccoli":        ["main course", "dinner", "high-protein", "low-carb"],
+    # Burmese
+    "Mohinga":                  ["soup", "breakfast", "main course"],
+    "Burmese Tea Leaf Salad":   ["salad", "snack", "vegetarian"],
+    "Shan Noodles":             ["main course", "lunch", "dinner"],
+    # Thai
+    "Pad Krapow Gai":           ["main course", "dinner", "quick", "high-protein"],
+    "Tom Yum Goong":            ["soup", "appetizer", "gluten-free", "low-carb"],
+    "Green Papaya Salad":       ["salad", "appetizer", "vegetarian", "gluten-free", "vegan"],
+    # Vietnamese
+    "Pho Bo":                   ["soup", "main course", "lunch", "dinner", "high-protein"],
+    "Banh Mi Thit Nuong":       ["main course", "lunch", "dinner", "quick"],
+    "Goi Cuon":                 ["appetizer", "snack", "lunch", "gluten-free", "quick"],
+    # Indian
+    "Chicken Tikka Masala":     ["main course", "dinner", "high-protein"],
+    "Dal Tadka":                ["main course", "dinner", "vegetarian", "vegan", "gluten-free"],
+    "Aloo Gobi":                ["side dish", "main course", "vegetarian", "vegan", "gluten-free"],
+    # Italian
+    "Spaghetti Carbonara":      ["main course", "dinner", "quick"],
+    "Aglio e Olio":             ["main course", "dinner", "vegetarian", "quick"],
+    "Margherita Pizza":         ["main course", "dinner", "vegetarian"],
+    # American / Western
+    "Sheet-Pan Chicken with Vegetables": ["main course", "dinner", "gluten-free", "high-protein"],
+    "Classic Cheeseburger":     ["main course", "lunch", "dinner", "high-protein"],
+    "Classic Chocolate Chip Cookies": ["dessert", "snack", "vegetarian"],
+    # Mexican
+    "Chicken Tinga Tacos":      ["main course", "dinner", "high-protein"],
+    "Guacamole":                ["appetizer", "snack", "vegetarian", "vegan", "gluten-free", "dairy-free", "quick"],
+    "Carne Asada":              ["main course", "dinner", "high-protein", "low-carb", "gluten-free"],
+}
+
+
+def _augmented_tags(spec_title: str, base_tags: list[str]) -> list[str]:
+    """Return the union of `base_tags` (from the curated spec) and the
+    course/dietary tags from `_EXTRA_TAGS_BY_TITLE`, deduplicated, with
+    original ordering preserved as much as possible. Returns a fresh list
+    so callers can mutate it freely.
+    """
+    extra = _EXTRA_TAGS_BY_TITLE.get(spec_title, [])
+    seen: set[str] = set()
+    out: list[str] = []
+    for t in [*base_tags, *extra]:
+        key = t.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(t)
+    return out
 
 
 async def main() -> None:
@@ -197,7 +263,14 @@ async def main() -> None:
     # minutes, so it never trips the idle timeout.
     # ------------------------------------------------------------------
     async with AsyncSessionLocal() as db:
-        all_tag_names = sorted({n for r in CURATED for n in r["tags"]})
+        # Compute the full universe of tag names we'll need (curated tags
+        # PLUS the augmented course/dietary tags) so every Tag row exists
+        # before we attach them to recipes.
+        all_tag_names = sorted({
+            n
+            for r in CURATED
+            for n in _augmented_tags(r["title"], list(r["tags"]))
+        })
         if all_tag_names:
             tag_rows = (
                 await db.scalars(select(Tag).where(Tag.name.in_(all_tag_names)))
@@ -225,7 +298,9 @@ async def main() -> None:
         skipped = 0
         backfilled = 0
         relinked = 0
+        retagged = 0
         for spec in CURATED:
+            target_tag_names = _augmented_tags(spec["title"], list(spec["tags"]))
             if spec["title"] in existing:
                 skipped += 1
                 row = existing_by_title[spec["title"]]
@@ -239,6 +314,16 @@ async def main() -> None:
                 if target_image and row.image_path != target_image:
                     row.image_path = target_image
                     relinked += 1
+                # Reconcile tag set: add any course/dietary tags that
+                # weren't present yet (e.g. on rows seeded before we
+                # introduced `_EXTRA_TAGS_BY_TITLE`). Existing curated
+                # tags are preserved so we never silently drop data.
+                existing_tag_names = {t.name for t in row.tags}
+                missing = [n for n in target_tag_names if n not in existing_tag_names]
+                if missing:
+                    for n in missing:
+                        row.tags.append(tag_by_name[n])
+                    retagged += 1
                 continue
             resolved_image = resolved_by_title[spec["title"]]
             sr = SpiceRoute(
@@ -274,7 +359,7 @@ async def main() -> None:
                     Step(sort_order=i, body=body)
                     for i, body in enumerate(spec["steps"])
                 ],
-                tags=[tag_by_name[name] for name in spec["tags"]],
+                tags=[tag_by_name[name] for name in target_tag_names],
             )
             db.add(sr)
             added += 1
@@ -283,7 +368,8 @@ async def main() -> None:
         print(
             f"Seeded {added} curated recipes "
             f"(skipped {skipped} duplicates, backfilled calories on "
-            f"{backfilled}, re-linked images on {relinked})."
+            f"{backfilled}, re-linked images on {relinked}, "
+            f"added course/dietary tags to {retagged})."
         )
 
 

@@ -166,6 +166,7 @@ _STUB_TITLE_BY_CUISINE = {
     "chinese": "Sample Mapo Tofu",
     "burmese": "Sample Mohinga Bowl",
     "thai": "Sample Pad Krapow",
+    "vietnamese": "Sample Pho Bo",
     "indian": "Sample Dal Tadka",
     "italian": "Sample Aglio e Olio",
     "american_western": "Sample Sheet-Pan Chicken",

@@ -56,6 +56,7 @@ RECIPE_RESPONSE_SCHEMA: dict = {
                 "chinese",
                 "burmese",
                 "thai",
+                "vietnamese",
                 "indian",
                 "italian",
                 "american_western",
