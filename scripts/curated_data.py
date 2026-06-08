@@ -1,11 +1,15 @@
 """Curated seed recipes for the Explore tab (3 per cuisine, 27 total).
 
-Image URLs are curated Unsplash food photos referenced by photo ID. Each
-ID below was hand-checked to (a) return HTTP 200 and (b) actually depict
-the dish. Picsum.photos was the previous fallback but served random nature
-shots (forests, museums, deer) that had nothing to do with the recipes.
+Image URLs go through LoremFlickr, which does a Flickr Creative Commons
+keyword search per dish, so every card shows a photo of the *actual* dish
+rather than a random stock image. Earlier attempts hard-coded Unsplash IDs
+guessed by hand and frequently mis-matched (a deer for "Egg Drop Soup", a
+museum for "Shan Noodles"). Search-by-keyword is far more accurate for the
+long tail of regional dishes (Mohinga, Lahpet Thoke, Shan Noodles, etc.)
+that don't have famous canonical Unsplash photos.
 """
 
+import zlib
 from typing import NotRequired, TypedDict
 
 
@@ -33,60 +37,134 @@ class RecipeSpec(TypedDict):
     calories: NotRequired[int]
 
 
-# Slug -> Unsplash photo ID. The slug is whatever we pass to `_img(slug)`
-# at the recipe definition site. If a slug is missing here we fall back
-# to a generic "plated food" Unsplash photo rather than picsum.photos so
-# every card still shows *food*.
-_UNSPLASH_BY_SLUG: dict[str, str] = {
+# Slug -> comma-separated Flickr search keywords. The keywords are the
+# dish name + a couple of disambiguating cuisine / preparation words so
+# the Flickr CC pool returns an obvious match. Order matters slightly
+# (Flickr weights early terms higher) so dish name comes first.
+#
+# Rules learned from probing the Flickr CC pool:
+#   - Keep keywords SHORT (2-3 words max). LoremFlickr uses `/all` matching
+#     so adding more terms makes a hit less likely. e.g. "tom,yum,goong,
+#     shrimp,soup,thai" returned the default placeholder, but "tom,yum"
+#     returns dozens of real photos.
+#   - Use the dish's *common name* first, with a single cuisine/format
+#     disambiguator second. Don't try to pile on ingredients.
+_FLICKR_KEYWORDS_BY_SLUG: dict[str, str] = {
     # Korean
-    "kimchi-jjigae": "1583224944844-5b268c057b72",
-    "bibimbap": "1546069901-ba9599a7e63c",
-    "kfc-yangnyeom": "1562967914-608f82629710",
+    "kimchi-jjigae": "kimchi,stew",
+    "bibimbap": "bibimbap",
+    "kfc-yangnyeom": "korean,chicken",
     # Japanese
-    "tamago-donburi": "1611143669185-af224c5e3252",
-    "miso-salmon": "1467003909585-2f8a72700288",
-    "cold-soba": "1607330289024-1535c6b4e1c1",
+    "tamago-donburi": "donburi",
+    "miso-salmon": "salmon,miso",
+    "cold-soba": "soba",
     # Chinese
-    "mapo-tofu": "1582450871972-ab5ca641643d",
-    "egg-drop-soup": "1612927601601-6638404737ce",
-    "beef-broccoli": "1583394293214-28ded15ee548",
+    "mapo-tofu": "mapo,tofu",
+    "egg-drop-soup": "soup,chinese",
+    "beef-broccoli": "beef,broccoli",
     # Burmese
-    "mohinga": "1569058242253-92a9c755a0ec",
-    "lahpet-thoke": "1605908502724-9093a79a1b39",
-    "shan-noodles": "1551782450-a2132b4ba21d",
+    "mohinga": "noodle,soup",
+    "lahpet-thoke": "salad,asian",
+    "shan-noodles": "noodles,bowl",
     # Thai
-    "pad-krapow": "1569562211093-4ed0d0758f12",
-    "tom-yum": "1503764654157-72d979d9af2f",
-    "som-tum": "1559314809-0d155014e29e",
+    "pad-krapow": "thai,basil",
+    "tom-yum": "tom,yum",
+    "som-tum": "papaya,salad",
     # Indian
-    "tikka-masala": "1565557623262-b51c2513a641",
-    "dal-tadka": "1546833999-b9f581a1996d",
-    "aloo-gobi": "1589302168068-964664d93dc0",
+    "tikka-masala": "tikka,masala",
+    "dal-tadka": "dal,curry",
+    "aloo-gobi": "aloo,gobi",
     # Italian
-    "carbonara": "1612874742237-6526221588e3",
-    "aglio-olio": "1551183053-bf91a1d81141",
-    "margherita": "1604068549290-dea0e4a305ca",
+    "carbonara": "carbonara",
+    "aglio-olio": "aglio,olio",
+    "margherita": "margherita,pizza",
     # American / Western
-    "sheet-pan-chicken": "1604908176997-125f25cc6f3d",
-    "cheeseburger": "1568901346375-23c9450c58cd",
-    "choc-chip-cookies": "1499636136210-6f4ee915583e",
+    "sheet-pan-chicken": "roast,chicken",
+    "cheeseburger": "cheeseburger",
+    "choc-chip-cookies": "chocolate,cookies",
     # Mexican
-    "chicken-tinga": "1565299585323-38d6b0865b47",
-    "guacamole": "1600335895229-6e75511892c8",
-    "carne-asada": "1544025162-d76694265947",
+    "chicken-tinga": "tinga,tacos",
+    "guacamole": "guacamole",
+    "carne-asada": "carne,asada",
 }
 
-# Generic, food-themed fallback when a slug is unknown. Better than
-# picsum (which served random nature shots) and at least keeps the card
-# visually coherent.
-_GENERIC_FOOD_PHOTO_ID = "1504674900247-0877df9cc836"  # plated food
+
+# Hand-curated Wikimedia Commons URLs for every dish — one editorial-quality
+# photo per recipe, all pulled from the dish's English Wikipedia article or
+# the top Commons search result and verified by hand to actually depict the
+# dish (not raw ingredients, not a tangentially related photo, not a deleted
+# Flickr import).
+#
+# Wikimedia is rock-solid infrastructure: these URLs point at specific
+# Commons files that have been on Wikipedia for years and won't 410 like
+# Flickr does, won't rotate like LoremFlickr does, and don't depend on any
+# rate-limited third-party API at runtime.
+#
+# Sized at 1280px because Wikimedia's thumbnail server only accepts a small
+# whitelist of widths (1200px is rejected with HTTP 400). 1280 downscales
+# cleanly to the 1200x800 cards.
+_WIKIMEDIA_IMAGE_BY_SLUG: dict[str, str] = {
+    # Korean
+    "kimchi-jjigae": "https://upload.wikimedia.org/wikipedia/commons/thumb/d/db/Korean_stew_dish_-_Kimchi-jjigae_Kimchi_Stew_2019_%2801%29.jpg/1280px-Korean_stew_dish_-_Kimchi-jjigae_Kimchi_Stew_2019_%2801%29.jpg",
+    "bibimbap": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/44/Dolsot-bibimbap.jpg/1280px-Dolsot-bibimbap.jpg",
+    "kfc-yangnyeom": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/46/Iksan_City_48_Korean_Style_Fried_chicken.jpg/1280px-Iksan_City_48_Korean_Style_Fried_chicken.jpg",
+    # Japanese
+    "tamago-donburi": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/29/Oyakodon_003.jpg/1280px-Oyakodon_003.jpg",
+    "miso-salmon": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b1/Salmon_Saikyo-Yaki.jpg/1280px-Salmon_Saikyo-Yaki.jpg",
+    "cold-soba": "https://upload.wikimedia.org/wikipedia/commons/thumb/6/69/Zaru_soba_by_spinachdip.jpg/1280px-Zaru_soba_by_spinachdip.jpg",
+    # Chinese
+    "mapo-tofu": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/88/Chen_Mapo_Tofu.jpg/1280px-Chen_Mapo_Tofu.jpg",
+    "egg-drop-soup": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e7/5-Minute_Egg_Drop_Soup-5_%2832079790121%29.jpg/1280px-5-Minute_Egg_Drop_Soup-5_%2832079790121%29.jpg",
+    "beef-broccoli": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/58/Beef_and_broccoli_stir_fry.jpg/1280px-Beef_and_broccoli_stir_fry.jpg",
+    # Burmese
+    "mohinga": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/29/Mohnga.jpg/1280px-Mohnga.jpg",
+    "lahpet-thoke": "https://upload.wikimedia.org/wikipedia/commons/thumb/6/64/Laphet_thoke.JPG/1280px-Laphet_thoke.JPG",
+    "shan-noodles": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Shan_Noodle.jpg/1280px-Shan_Noodle.jpg",
+    # Thai
+    "pad-krapow": "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ae/Basil_fried_crispy_pork_with_rice_-_Chiang_Mai_-_2017-07-11_%28002%29.jpg/1280px-Basil_fried_crispy_pork_with_rice_-_Chiang_Mai_-_2017-07-11_%28002%29.jpg",
+    "tom-yum": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e8/Tom_yam_kung_maenam.jpg/1280px-Tom_yam_kung_maenam.jpg",
+    "som-tum": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/34/2013_Tam_Lao.jpg/1280px-2013_Tam_Lao.jpg",
+    # Indian
+    "tikka-masala": "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Chicken_tikka_masala_%28cropped%29.jpg/1280px-Chicken_tikka_masala_%28cropped%29.jpg",
+    "dal-tadka": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f0/Dal_Tadka-Delhi.jpg/1280px-Dal_Tadka-Delhi.jpg",
+    "aloo-gobi": "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a9/Aloo_Ghobi.jpg/1280px-Aloo_Ghobi.jpg",
+    # Italian
+    "carbonara": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/33/Espaguetis_carbonara.jpg/1280px-Espaguetis_carbonara.jpg",
+    "aglio-olio": "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6f/Aglio_e_olio.jpg/1280px-Aglio_e_olio.jpg",
+    "margherita": "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c8/Pizza_Margherita_stu_spivack.jpg/1280px-Pizza_Margherita_stu_spivack.jpg",
+    # American / Western
+    "sheet-pan-chicken": "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d9/Max%27s_Roasted_Chicken_-_Evan_Swigart.jpg/1280px-Max%27s_Roasted_Chicken_-_Evan_Swigart.jpg",
+    "cheeseburger": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4d/Cheeseburger.jpg/1280px-Cheeseburger.jpg",
+    "choc-chip-cookies": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b4/Choco_chip_cookie.png/1280px-Choco_chip_cookie.png",
+    # Mexican
+    "chicken-tinga": "https://upload.wikimedia.org/wikipedia/commons/thumb/0/07/Tinga_de_pollo.JPG/1280px-Tinga_de_pollo.JPG",
+    "guacamole": "https://upload.wikimedia.org/wikipedia/commons/thumb/6/64/Guacamole_IMGP1271.jpg/1280px-Guacamole_IMGP1271.jpg",
+    "carne-asada": "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d0/Carne_asada_%284472586086%29.jpg/1280px-Carne_asada_%284472586086%29.jpg",
+}
 
 
 def _img(slug: str) -> str:
-    photo_id = _UNSPLASH_BY_SLUG.get(slug, _GENERIC_FOOD_PHOTO_ID)
+    """Build a stable, search-based food image URL for a recipe.
+
+    - If a slug has an entry in `_WIKIMEDIA_IMAGE_BY_SLUG`, that URL is
+      returned as-is. The seed script's resolver passes through any
+      non-LoremFlickr URL unchanged, so this becomes the permanent URL.
+    - Otherwise, use LoremFlickr keyword search. The seed script will
+      resolve this to a permanent Flickr CDN URL.
+    - `/all` forces *all* keywords to match -> much more accurate than
+      the default OR-search.
+    - `lock=<stable hash>` makes the returned photo deterministic so the
+      same recipe always shows the same image (otherwise it'd shuffle on
+      every page load and the card would feel unstable).
+    - Generic "food,plated" fallback if a slug isn't registered.
+    """
+    if slug in _WIKIMEDIA_IMAGE_BY_SLUG:
+        return _WIKIMEDIA_IMAGE_BY_SLUG[slug]
+    keywords = _FLICKR_KEYWORDS_BY_SLUG.get(slug, "food,plated,dish")
+    seed = zlib.crc32(slug.encode("utf-8")) % 99999
     return (
-        f"https://images.unsplash.com/photo-{photo_id}"
-        "?w=1200&q=80&auto=format&fit=crop"
+        "https://loremflickr.com/1200/800/"
+        f"{keywords}/all?lock={seed}"
     )
 
 
