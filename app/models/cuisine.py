@@ -14,3 +14,4 @@ class Cuisine(StrEnum):
     ITALIAN = "italian"
     AMERICAN_WESTERN = "american_western"
     MEXICAN = "mexican"
+    FRENCH = "french"

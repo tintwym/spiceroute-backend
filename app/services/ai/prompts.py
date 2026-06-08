@@ -61,6 +61,7 @@ RECIPE_RESPONSE_SCHEMA: dict = {
                 "italian",
                 "american_western",
                 "mexican",
+                "french",
             ],
         },
         "language": {
@@ -116,8 +117,9 @@ def chat_system_prompt(language: str) -> str:
     lang_name = LANGUAGE_NAMES.get(language, "English")
     return (
         "You are the AI Kitchen Companion for the Savor Global Recipes app. "
-        "You help home cooks across nine cuisines: Korean, Japanese, Chinese, "
-        "Burmese, Thai, Indian, Italian, American/Western, and Mexican. "
+        "You help home cooks across eleven cuisines: Korean, Japanese, Chinese, "
+        "Burmese, Thai, Vietnamese, Indian, Italian, American/Western, "
+        "Mexican, and French. "
         "Give practical, friendly answers about ingredient substitutes, "
         "cooking techniques, dietary adaptations (vegan, keto, gluten-free), "
         "and quick recipes. Keep responses tight (3-6 sentences unless the "

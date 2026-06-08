@@ -130,53 +130,165 @@ _CUISINE_KCAL_FALLBACK = {
     "italian": 620,
     "american_western": 700,
     "mexican": 580,
+    "french": 620,
 }
 
 # Per-recipe extra tags layered on top of `spec["tags"]` to power the
 # Explore filter dropdowns. Frontend `Course` and `Dietary` enums look these
 # up by name (case-insensitive) so the strings here must match the
 # `tagName` field on those Dart enums exactly.
+#
+# Tag taxonomy mirrors the v2 filter design (see filter_bar.dart):
+#   Courses : breakfast | lunch | appetizer | side dish | dessert | snack
+#             | drinks
+#   Dietary : vegan | vegetarian | meal prep | quick | pasta soup
+#             | blood sugar balanced | swicy | anti-inflammatory
+#
+# Legacy tags (main course, dinner, soup, salad, gluten-free, dairy-free,
+# nut-free, high-protein, low-carb) are kept on the recipes for backward
+# compatibility and visible tag display, but are no longer surfaced as
+# filter dropdown options.
 _EXTRA_TAGS_BY_TITLE: dict[str, list[str]] = {
-    # Korean
-    "Kimchi Jjigae":            ["soup", "dinner", "main course"],
-    "Bibimbap":                 ["main course", "lunch", "dinner"],
-    "Korean Fried Chicken":     ["main course", "dinner", "high-protein"],
-    # Japanese
-    "Tamago Donburi":           ["main course", "lunch", "quick"],
-    "Miso Glazed Salmon":       ["main course", "dinner", "high-protein", "gluten-free"],
-    "Cold Soba with Dipping Sauce": ["main course", "lunch", "vegetarian", "quick"],
-    # Chinese
-    "Mapo Tofu":                ["main course", "dinner", "vegetarian"],
-    "Egg Drop Soup":            ["soup", "appetizer", "vegetarian", "gluten-free", "quick"],
-    "Beef and Broccoli":        ["main course", "dinner", "high-protein", "low-carb"],
-    # Burmese
-    "Mohinga":                  ["soup", "breakfast", "main course"],
-    "Burmese Tea Leaf Salad":   ["salad", "snack", "vegetarian"],
-    "Shan Noodles":             ["main course", "lunch", "dinner"],
-    # Thai
-    "Pad Krapow Gai":           ["main course", "dinner", "quick", "high-protein"],
-    "Tom Yum Goong":            ["soup", "appetizer", "gluten-free", "low-carb"],
-    "Green Papaya Salad":       ["salad", "appetizer", "vegetarian", "gluten-free", "vegan"],
-    # Vietnamese
-    "Pho Bo":                   ["soup", "main course", "lunch", "dinner", "high-protein"],
-    "Banh Mi Thit Nuong":       ["main course", "lunch", "dinner", "quick"],
-    "Goi Cuon":                 ["appetizer", "snack", "lunch", "gluten-free", "quick"],
-    # Indian
-    "Chicken Tikka Masala":     ["main course", "dinner", "high-protein"],
-    "Dal Tadka":                ["main course", "dinner", "vegetarian", "vegan", "gluten-free"],
-    "Aloo Gobi":                ["side dish", "main course", "vegetarian", "vegan", "gluten-free"],
-    # Italian
-    "Spaghetti Carbonara":      ["main course", "dinner", "quick"],
-    "Aglio e Olio":             ["main course", "dinner", "vegetarian", "quick"],
-    "Margherita Pizza":         ["main course", "dinner", "vegetarian"],
-    # American / Western
-    "Sheet-Pan Chicken with Vegetables": ["main course", "dinner", "gluten-free", "high-protein"],
-    "Classic Cheeseburger":     ["main course", "lunch", "dinner", "high-protein"],
-    "Classic Chocolate Chip Cookies": ["dessert", "snack", "vegetarian"],
-    # Mexican
-    "Chicken Tinga Tacos":      ["main course", "dinner", "high-protein"],
-    "Guacamole":                ["appetizer", "snack", "vegetarian", "vegan", "gluten-free", "dairy-free", "quick"],
-    "Carne Asada":              ["main course", "dinner", "high-protein", "low-carb", "gluten-free"],
+    # ---- Korean ----
+    "Kimchi Jjigae": [
+        "soup", "dinner", "main course",
+        "pasta soup", "meal prep",
+    ],
+    "Bibimbap": [
+        "main course", "lunch", "dinner",
+        "meal prep", "blood sugar balanced",
+    ],
+    "Korean Fried Chicken": [
+        "main course", "dinner", "high-protein",
+        "swicy", "meal prep",
+    ],
+    # ---- Japanese ----
+    "Tamago Donburi": [
+        "main course", "lunch", "quick",
+    ],
+    "Miso Glazed Salmon": [
+        "main course", "dinner", "high-protein", "gluten-free",
+        "blood sugar balanced", "anti-inflammatory", "meal prep",
+    ],
+    "Cold Soba with Dipping Sauce": [
+        "main course", "lunch", "vegetarian", "quick",
+        "pasta soup", "anti-inflammatory",
+    ],
+    # ---- Chinese ----
+    "Mapo Tofu": [
+        "main course", "dinner", "vegetarian",
+        "swicy", "meal prep",
+    ],
+    "Egg Drop Soup": [
+        "soup", "appetizer", "vegetarian", "gluten-free", "quick",
+        "pasta soup",
+    ],
+    "Beef and Broccoli": [
+        "main course", "dinner", "high-protein", "low-carb",
+        "blood sugar balanced", "meal prep",
+    ],
+    # ---- Burmese ----
+    "Mohinga": [
+        "soup", "breakfast", "main course",
+        "pasta soup", "meal prep",
+    ],
+    "Burmese Tea Leaf Salad": [
+        "salad", "snack", "vegetarian", "appetizer",
+        "anti-inflammatory",
+    ],
+    "Shan Noodles": [
+        "main course", "lunch", "dinner",
+        "pasta soup", "meal prep",
+    ],
+    # ---- Thai ----
+    "Pad Krapow Gai": [
+        "main course", "dinner", "quick", "high-protein",
+        "swicy", "blood sugar balanced",
+    ],
+    "Tom Yum Goong": [
+        "soup", "appetizer", "gluten-free", "low-carb",
+        "pasta soup", "anti-inflammatory",
+    ],
+    "Green Papaya Salad": [
+        "salad", "appetizer", "vegetarian", "gluten-free", "vegan",
+        "blood sugar balanced", "anti-inflammatory", "swicy",
+    ],
+    # ---- Vietnamese ----
+    "Pho Bo": [
+        "soup", "main course", "lunch", "dinner", "high-protein",
+        "pasta soup", "anti-inflammatory",
+    ],
+    "Banh Mi Thit Nuong": [
+        "main course", "lunch", "dinner",
+        "meal prep",
+    ],
+    "Goi Cuon": [
+        "appetizer", "snack", "lunch", "gluten-free",
+        "blood sugar balanced", "anti-inflammatory",
+    ],
+    # ---- Indian ----
+    "Chicken Tikka Masala": [
+        "main course", "dinner", "high-protein",
+        "meal prep",
+    ],
+    "Dal Tadka": [
+        "main course", "dinner", "vegetarian", "vegan", "gluten-free",
+        "anti-inflammatory", "meal prep",
+    ],
+    "Aloo Gobi": [
+        "side dish", "main course", "vegetarian", "vegan", "gluten-free",
+        "anti-inflammatory", "blood sugar balanced", "meal prep",
+    ],
+    # ---- Italian ----
+    "Spaghetti Carbonara": [
+        "main course", "dinner", "quick",
+        "pasta soup",
+    ],
+    "Aglio e Olio": [
+        "main course", "dinner", "vegetarian", "quick",
+        "pasta soup",
+    ],
+    "Margherita Pizza": [
+        "main course", "dinner", "vegetarian",
+    ],
+    # ---- American / Western ----
+    "Sheet-Pan Chicken with Vegetables": [
+        "main course", "dinner", "gluten-free", "high-protein",
+        "meal prep", "blood sugar balanced",
+    ],
+    "Classic Cheeseburger": [
+        "main course", "lunch", "dinner", "high-protein",
+    ],
+    "Classic Chocolate Chip Cookies": [
+        "dessert", "snack", "vegetarian",
+    ],
+    # ---- Mexican ----
+    "Chicken Tinga Tacos": [
+        "main course", "dinner", "high-protein",
+        "swicy", "meal prep",
+    ],
+    "Guacamole": [
+        "appetizer", "snack", "vegetarian", "vegan", "gluten-free",
+        "dairy-free", "quick",
+        "blood sugar balanced", "anti-inflammatory",
+    ],
+    "Carne Asada": [
+        "main course", "dinner", "high-protein", "low-carb", "gluten-free",
+        "meal prep", "blood sugar balanced",
+    ],
+    # ---- French ----
+    "Coq au Vin": [
+        "main course", "dinner",
+        "meal prep",
+    ],
+    "Ratatouille": [
+        "main course", "side dish", "dinner", "vegetarian", "vegan",
+        "gluten-free", "dairy-free",
+        "anti-inflammatory", "blood sugar balanced", "meal prep",
+    ],
+    "Quiche Lorraine": [
+        "breakfast", "lunch", "main course",
+    ],
 }
 
 

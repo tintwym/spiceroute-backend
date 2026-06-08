@@ -171,6 +171,7 @@ _STUB_TITLE_BY_CUISINE = {
     "italian": "Sample Aglio e Olio",
     "american_western": "Sample Sheet-Pan Chicken",
     "mexican": "Sample Chicken Tinga Tacos",
+    "french": "Sample Coq au Vin",
 }
 
 
