@@ -8,6 +8,7 @@ LANGUAGE_NAMES = {
     "th": "Thai",
     "ja": "Japanese",
     "ko": "Korean",
+    "vi": "Vietnamese",
 }
 
 
@@ -63,7 +64,7 @@ RECIPE_RESPONSE_SCHEMA: dict = {
         },
         "language": {
             "type": "string",
-            "enum": ["en", "zh", "th", "ja", "ko"],
+            "enum": ["en", "zh", "th", "ja", "ko", "vi"],
         },
         "spice_level": {"type": "integer", "minimum": 0, "maximum": 3},
         "calories_per_serving": {

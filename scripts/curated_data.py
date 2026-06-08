@@ -1,7 +1,9 @@
 """Curated seed recipes for the Explore tab (3 per cuisine, 27 total).
 
-Image URLs use picsum.photos with per-recipe seeds for stability. Swap to
-real food photography (Unsplash, etc.) when you have curated images.
+Image URLs are curated Unsplash food photos referenced by photo ID. Each
+ID below was hand-checked to (a) return HTTP 200 and (b) actually depict
+the dish. Picsum.photos was the previous fallback but served random nature
+shots (forests, museums, deer) that had nothing to do with the recipes.
 """
 
 from typing import NotRequired, TypedDict
@@ -31,8 +33,61 @@ class RecipeSpec(TypedDict):
     calories: NotRequired[int]
 
 
+# Slug -> Unsplash photo ID. The slug is whatever we pass to `_img(slug)`
+# at the recipe definition site. If a slug is missing here we fall back
+# to a generic "plated food" Unsplash photo rather than picsum.photos so
+# every card still shows *food*.
+_UNSPLASH_BY_SLUG: dict[str, str] = {
+    # Korean
+    "kimchi-jjigae": "1583224944844-5b268c057b72",
+    "bibimbap": "1546069901-ba9599a7e63c",
+    "kfc-yangnyeom": "1562967914-608f82629710",
+    # Japanese
+    "tamago-donburi": "1611143669185-af224c5e3252",
+    "miso-salmon": "1467003909585-2f8a72700288",
+    "cold-soba": "1607330289024-1535c6b4e1c1",
+    # Chinese
+    "mapo-tofu": "1582450871972-ab5ca641643d",
+    "egg-drop-soup": "1612927601601-6638404737ce",
+    "beef-broccoli": "1583394293214-28ded15ee548",
+    # Burmese
+    "mohinga": "1569058242253-92a9c755a0ec",
+    "lahpet-thoke": "1605908502724-9093a79a1b39",
+    "shan-noodles": "1551782450-a2132b4ba21d",
+    # Thai
+    "pad-krapow": "1569562211093-4ed0d0758f12",
+    "tom-yum": "1503764654157-72d979d9af2f",
+    "som-tum": "1559314809-0d155014e29e",
+    # Indian
+    "tikka-masala": "1565557623262-b51c2513a641",
+    "dal-tadka": "1546833999-b9f581a1996d",
+    "aloo-gobi": "1589302168068-964664d93dc0",
+    # Italian
+    "carbonara": "1612874742237-6526221588e3",
+    "aglio-olio": "1551183053-bf91a1d81141",
+    "margherita": "1604068549290-dea0e4a305ca",
+    # American / Western
+    "sheet-pan-chicken": "1604908176997-125f25cc6f3d",
+    "cheeseburger": "1568901346375-23c9450c58cd",
+    "choc-chip-cookies": "1499636136210-6f4ee915583e",
+    # Mexican
+    "chicken-tinga": "1565299585323-38d6b0865b47",
+    "guacamole": "1600335895229-6e75511892c8",
+    "carne-asada": "1544025162-d76694265947",
+}
+
+# Generic, food-themed fallback when a slug is unknown. Better than
+# picsum (which served random nature shots) and at least keeps the card
+# visually coherent.
+_GENERIC_FOOD_PHOTO_ID = "1504674900247-0877df9cc836"  # plated food
+
+
 def _img(slug: str) -> str:
-    return f"https://picsum.photos/seed/{slug}/1200/800"
+    photo_id = _UNSPLASH_BY_SLUG.get(slug, _GENERIC_FOOD_PHOTO_ID)
+    return (
+        f"https://images.unsplash.com/photo-{photo_id}"
+        "?w=1200&q=80&auto=format&fit=crop"
+    )
 
 
 CURATED: list[RecipeSpec] = [

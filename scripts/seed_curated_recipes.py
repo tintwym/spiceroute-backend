@@ -62,6 +62,7 @@ async def main() -> None:
         added = 0
         skipped = 0
         backfilled = 0
+        relinked = 0
         for spec in CURATED:
             if spec["title"] in existing:
                 skipped += 1
@@ -74,6 +75,14 @@ async def main() -> None:
                         _CUISINE_KCAL_FALLBACK.get(spec["cuisine"]),
                     )
                     backfilled += 1
+                # Always re-point image to the latest curated URL. Earlier
+                # seeds used picsum.photos which served random nature shots
+                # (a deer for "Egg Drop Soup", etc.) — overwrite so already-
+                # seeded environments switch to the curated Unsplash photos
+                # without needing a wipe.
+                if row.image_path != spec["image"]:
+                    row.image_path = spec["image"]
+                    relinked += 1
                 continue
             sr = SpiceRoute(
                 user_id=None,
@@ -117,7 +126,7 @@ async def main() -> None:
         print(
             f"Seeded {added} curated recipes "
             f"(skipped {skipped} duplicates, backfilled calories on "
-            f"{backfilled})."
+            f"{backfilled}, re-linked images on {relinked})."
         )
 
 

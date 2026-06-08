@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.models.cuisine import Cuisine
 
 NameStr = Annotated[str, Field(min_length=1, max_length=200)]
-SUPPORTED_LANGUAGES = ("en", "zh", "th", "ja", "ko")
+SUPPORTED_LANGUAGES = ("en", "zh", "th", "ja", "ko", "vi")
 
 
 class IngredientIn(BaseModel):
