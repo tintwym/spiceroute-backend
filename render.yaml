@@ -1,0 +1,102 @@
+# Render blueprint for the SpiceRoute API.
+#
+# Render reads this file when you "New +" → "Blueprint" in the dashboard
+# and point it at this repo (https://github.com/tintwym/spiceroute-backend).
+# It provisions everything declaratively:
+#
+#   * one Docker-backed Web Service (this API)
+#   * one managed Postgres instance
+#   * the env vars below (with secrets left blank for you to fill in
+#     via the dashboard — they're marked `sync: false`)
+#
+# Docs: https://render.com/docs/blueprint-spec
+#
+# Usage:
+#
+#   1. Push this repo to GitHub.
+#   2. Render dashboard → "New +" → "Blueprint" → pick this repo.
+#   3. Render shows a diff of what it will create. Approve.
+#   4. After provisioning, open the new Web Service's "Environment" tab
+#      and fill in the three secret values: DATABASE_URL,
+#      FIREBASE_CREDENTIALS_JSON, GEMINI_API_KEY. Save.
+#   5. Trigger a manual deploy (or push to main if autoDeploy is on).
+#   6. Your URL: https://<service-name>.onrender.com
+#
+# Render free tier sleeps after 15 min of inactivity → first request
+# after sleep is a ~30 s cold start. Upgrade to "Starter" ($7/mo) for
+# always-on. Postgres free tier expires after 90 days; use Neon for a
+# free forever option (skip the `databases:` block below in that case).
+
+services:
+  - type: web
+    name: spiceroute-api
+    runtime: docker
+    region: singapore                # closest to Asia; use frankfurt / oregon / ohio / virginia otherwise
+    plan: starter                    # `free` works too; cold starts trade off
+
+    # Paths are resolved relative to THIS file's directory (the backend
+    # repo root). The Dockerfile sits right next to this blueprint.
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: true
+
+    # The Dockerfile CMD ends with `--reload` for the docker-compose dev
+    # loop; we override it here so production runs without a file
+    # watcher AND binds to Render's injected $PORT (Render expects the
+    # service to listen on $PORT, typically 10000).
+    dockerCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+
+    # Migrations run on every deploy, BEFORE traffic shifts to the new
+    # instance. Failures abort the deploy.
+    preDeployCommand: alembic upgrade head
+
+    envVars:
+      # ---- Non-secret config ---------------------------------------
+      - key: APP_NAME
+        value: SpiceRoute API
+      - key: DEBUG
+        value: "false"
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: AI_RATE_LIMIT_PER_DAY
+        value: "30"
+      - key: AI_CHAT_PER_HOUR
+        value: "50"
+      # Lock CORS to your real Vercel domain(s) once you have them.
+      # Comma-separated; NEVER ship `*` to production.
+      - key: CORS_ORIGINS
+        value: https://your-app.vercel.app
+
+      # ---- Secrets (fill in via the Render dashboard) --------------
+      #
+      # `sync: false` tells Render "don't try to source this from the
+      # blueprint — I'll set it by hand in the Environment tab". This
+      # is the recommended pattern for anything you don't want in git.
+      - key: DATABASE_URL
+        sync: false                  # see below — paste asyncpg-format URL
+      - key: FIREBASE_CREDENTIALS_JSON
+        sync: false                  # paste the entire contents of firebase-service-account.json
+      - key: GEMINI_API_KEY
+        sync: false                  # https://aistudio.google.com/apikey
+
+# ---- Managed Postgres -----------------------------------------------
+#
+# Delete this whole block if you're using Neon — just set DATABASE_URL
+# manually in the dashboard with your Neon URL (asyncpg format!).
+#
+# Render's Postgres connection string is libpq-style
+# (`postgres://USER:PASS@HOST/DB`). The app needs the asyncpg format
+# (`postgresql+asyncpg://...?ssl=require`), so after Render provisions
+# the database, copy the "External Connection String" from its
+# dashboard page and rewrite it as:
+#
+#   postgresql+asyncpg://USER:PASS@HOST/DB?ssl=require
+#
+# Then paste THAT into the DATABASE_URL field above.
+databases:
+  - name: spiceroute-db
+    plan: starter                    # `free` works but expires after 90 days
+    databaseName: spiceroute
+    user: spiceroute
+    region: singapore

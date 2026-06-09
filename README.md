@@ -145,7 +145,7 @@ The pytest suite runs on **in-memory SQLite** (no Postgres required) — `sqlalc
 
 ### Render
 
-A ready-to-use Render Blueprint lives at the **repo root** ([`../render.yaml`](../render.yaml)). It declaratively provisions:
+A ready-to-use Render Blueprint ([`render.yaml`](./render.yaml)) lives at the root of this backend repo. It declaratively provisions:
 
 - A Docker-backed Web Service that builds from this directory's `Dockerfile`.
 - A managed Render Postgres instance (skip / delete that block if you'd rather use Neon).
