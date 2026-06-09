@@ -141,6 +141,82 @@ pytest
 
 The pytest suite runs on **in-memory SQLite** (no Postgres required) — `sqlalchemy.Uuid` maps to native UUID on Postgres and `CHAR(32)` on SQLite, and search uses LIKE instead of `pg_trgm`. The asyncio loop is managed by `pytest-asyncio` in `auto` mode.
 
+## Deployment
+
+### Render
+
+A ready-to-use Render Blueprint lives at the **repo root** ([`../render.yaml`](../render.yaml)). It declaratively provisions:
+
+- A Docker-backed Web Service that builds from this directory's `Dockerfile`.
+- A managed Render Postgres instance (skip / delete that block if you'd rather use Neon).
+- All non-secret env vars from [`.env.example`](./.env.example) baked into the blueprint.
+- Three `sync: false` slots for the secrets (`DATABASE_URL`, `FIREBASE_CREDENTIALS_JSON`, `GEMINI_API_KEY`) that you fill in via the dashboard after the blueprint applies.
+
+The blueprint also:
+
+- Overrides the Dockerfile's dev `--reload` CMD with a production boot bound to Render's injected `$PORT`.
+- Runs `alembic upgrade head` as `preDeployCommand` so migrations apply _before_ new traffic shifts.
+- Health-checks `/health` (Render marks the deploy failed if it doesn't go green).
+
+#### One-time setup
+
+1. **Push the repo to GitHub** (Render reads `render.yaml` from your default branch).
+2. **Render dashboard** → **New +** → **Blueprint** → pick this repo. Render shows you a diff of what it will create; approve.
+3. After provisioning finishes, open the new **`spiceroute-api`** service → **Environment** tab → fill in the three secrets:
+
+   | Key | How to obtain |
+   |---|---|
+   | `DATABASE_URL` | If you accepted the blueprint's Postgres: open the `spiceroute-db` service → copy the **External Connection String** → rewrite to the asyncpg format (see below). If using Neon: paste your Neon URL in asyncpg format. |
+   | `FIREBASE_CREDENTIALS_JSON` | `cat firebase-service-account.json` from your local machine — paste the entire JSON content. |
+   | `GEMINI_API_KEY` | <https://aistudio.google.com/apikey> |
+
+   Render's Postgres "External Connection String" looks like:
+
+   ```
+   postgres://USER:PASS@dpg-xxx.singapore-postgres.render.com/spiceroute
+   ```
+
+   Rewrite it to:
+
+   ```
+   postgresql+asyncpg://USER:PASS@dpg-xxx.singapore-postgres.render.com/spiceroute?ssl=require
+   ```
+
+4. Click **Save Changes** — Render triggers a deploy automatically. After it goes green, your URL is `https://spiceroute-api.onrender.com` (or whatever name you set).
+5. **Update CORS** — if you renamed the service or attached a custom domain, edit `CORS_ORIGINS` in the blueprint (or directly in the Environment tab) so it lists your Vercel domain(s).
+
+#### Required env / secrets summary
+
+| Variable | Where it's set | Notes |
+|---|---|---|
+| `DATABASE_URL` | Dashboard (secret) | asyncpg format — `postgresql+asyncpg://…?ssl=require`. |
+| `FIREBASE_CREDENTIALS_JSON` | Dashboard (secret) | Service-account JSON inlined as a string (see [Dev modes](#dev-modes)). |
+| `GEMINI_API_KEY` | Dashboard (secret) | Billed API key. |
+| `CORS_ORIGINS` | `render.yaml` | Public knowledge; lock to your Vercel domain(s). |
+| `APP_NAME` / `DEBUG` / `GEMINI_MODEL` / `AI_RATE_LIMIT_PER_DAY` / `AI_CHAT_PER_HOUR` | `render.yaml` | Non-sensitive defaults from `.env.example`. |
+
+#### Verifying
+
+```bash
+curl https://<your-service>.onrender.com/health
+# → {"status":"ok","database":"ok"}
+```
+
+If `/health` reports `database: down`, your `DATABASE_URL` is wrong — usually missing the `+asyncpg` prefix or using `sslmode=require` (libpq) instead of `ssl=require` (asyncpg). See [Neon URL format](#neon-url-format).
+
+Render's per-service **Logs** tab streams the live application logs. The **Events** tab shows deploy / migration / health-check timelines.
+
+#### Free vs Starter
+
+- **Free** Web Service: sleeps after 15 min of inactivity → cold start is ~30 s. Fine for demos.
+- **Starter** Web Service ($7/mo): always-on, no cold start. Recommended once you're sharing the URL.
+- **Free** Postgres expires after **90 days** with no warning. Either upgrade to Starter or use [Neon](https://neon.tech) (free forever, just point `DATABASE_URL` at the Neon string).
+
+#### Updating
+
+- `git push origin main` — Render auto-deploys (rebuilds image, runs migrations, swaps zero-downtime).
+- Change an env var in the dashboard → Render triggers a rolling restart.
+
 ## Architecture notes
 
 - **Auth model**: Firebase is the source of truth. Local `users` rows store `firebase_uid`, optional `email`, and `display_name` (Apple Sign-In with private relay may withhold the email). No passwords, no refresh tokens — token rotation is the client's problem.

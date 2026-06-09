@@ -18,12 +18,23 @@ class Settings(BaseSettings):
 
     cors_origins: str = "*"
 
-    # Firebase Admin — path to the service account JSON downloaded from
-    # Firebase Console -> Project Settings -> Service Accounts. Empty value
-    # triggers DEV MODE: tokens with the prefix "dev:<uid>" are accepted as a
-    # local user. This lets the auth-gated endpoints be developed without a
-    # real Firebase project, and lets the test suite run without a key.
+    # Firebase Admin — two ways to provide the credentials:
+    #
+    #   1. `FIREBASE_CREDENTIALS_PATH` — path to the service-account JSON
+    #      downloaded from Firebase Console -> Project Settings ->
+    #      Service Accounts. Best for local dev (drop the file at the
+    #      repo root and forget about it).
+    #
+    #   2. `FIREBASE_CREDENTIALS_JSON` — the JSON content inline as a
+    #      single string. Best for Fly.io / Render / Railway / Vercel
+    #      where you set the credentials via `fly secrets set …` or the
+    #      dashboard's env editor and don't want to ship a file. Takes
+    #      precedence over the path when both are set.
+    #
+    # When NEITHER is configured, the backend runs in DEV MODE and accepts
+    # tokens of the form "dev:<uid>" — useful for tests and offline dev.
     firebase_credentials_path: str = "firebase-service-account.json"
+    firebase_credentials_json: str = ""
     firebase_project_id: str = ""
 
     # Google Gemini — empty key triggers stub mode (deterministic mock responses)
@@ -50,9 +61,16 @@ class Settings(BaseSettings):
     def firebase_dev_mode(self) -> bool:
         """When no Firebase credentials are configured we accept dev tokens of
         the form `dev:<uid>` so the app can be developed without a real
-        Firebase project. NEVER let this flip to True in production."""
+        Firebase project. NEVER let this flip to True in production.
+
+        Real-mode is unlocked by EITHER an inline JSON env var (preferred
+        on hosted platforms — Fly.io, Render, Railway) OR a service-account
+        file on disk (preferred locally). If neither resolves, we're in
+        dev mode."""
         from pathlib import Path
 
+        if self.firebase_credentials_json.strip():
+            return False
         return not Path(self.firebase_credentials_path).is_file()
 
 

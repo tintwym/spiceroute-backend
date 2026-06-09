@@ -34,7 +34,16 @@ def _ensure_initialized() -> None:
     import firebase_admin
     from firebase_admin import credentials
 
-    cred = credentials.Certificate(_settings.firebase_credentials_path)
+    # Inline JSON wins when set (the Fly.io / Render / Railway path —
+    # there's no file on disk, just a Fly secret containing the JSON
+    # content). Falls back to the path-based variant for local dev.
+    inline = _settings.firebase_credentials_json.strip()
+    if inline:
+        import json
+
+        cred = credentials.Certificate(json.loads(inline))
+    else:
+        cred = credentials.Certificate(_settings.firebase_credentials_path)
     firebase_admin.initialize_app(cred)
     _initialized = True
 
