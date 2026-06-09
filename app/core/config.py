@@ -11,12 +11,26 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
-    app_name: str = "Savor Global Recipes API"
+    app_name: str = "SpiceRoute API"
     debug: bool = False
 
     database_url: str = "postgresql+asyncpg://spiceroute:spiceroute@db:5432/spiceroute"
 
+    # CORS — two complementary knobs:
+    #
+    #   `CORS_ORIGINS`  Comma-separated explicit allowlist (or "*" for dev).
+    #                   Use this for production with fixed domains.
+    #
+    #   `CORS_ORIGIN_REGEX`  Python regex matched against the request's
+    #                        Origin header. Use this when you need a
+    #                        wildcard (e.g. all Vercel preview deploys):
+    #                          CORS_ORIGIN_REGEX=^https://.*\.vercel\.app$
+    #                        When set, this takes precedence over the
+    #                        explicit list (FastAPI's CORSMiddleware will
+    #                        match either, but regex is the only way to
+    #                        do wildcards).
     cors_origins: str = "*"
+    cors_origin_regex: str = ""
 
     # Firebase Admin — two ways to provide the credentials:
     #

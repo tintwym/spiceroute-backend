@@ -63,10 +63,22 @@ services:
         value: "30"
       - key: AI_CHAT_PER_HOUR
         value: "50"
-      # Lock CORS to your real Vercel domain(s) once you have them.
-      # Comma-separated; NEVER ship `*` to production.
+      # CORS — two knobs working together:
+      #
+      #   CORS_ORIGINS        Comma-separated EXACT origins. Lock to
+      #                       your production domain(s).
+      #   CORS_ORIGIN_REGEX   Python regex matched against Origin
+      #                       header. Used here to allow every Vercel
+      #                       preview deploy (which gets a unique
+      #                       *.vercel.app subdomain per branch/commit)
+      #                       to talk to this backend.
+      #
+      # NEVER ship `*` to production — it disables CORS protection.
+      # Update the explicit list once you know your real domain.
       - key: CORS_ORIGINS
         value: https://your-app.vercel.app
+      - key: CORS_ORIGIN_REGEX
+        value: ^https://([a-z0-9-]+\.)*vercel\.app$
 
       # ---- Secrets (fill in via the Render dashboard) --------------
       #

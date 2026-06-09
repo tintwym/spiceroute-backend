@@ -63,12 +63,30 @@ async def test_authed_create_then_read(client: AsyncClient) -> None:
 
 @pytest.mark.asyncio
 async def test_user_cannot_force_premium(client: AsyncClient) -> None:
+    # The server now LOUDLY rejects client-set `is_premium=True` at
+    # schema validation (422) instead of silently coercing to False
+    # (201). Silent coercion was masking client bugs — a client
+    # thinking it had successfully published a "premium" recipe had
+    # no way to know its is_premium flag was being dropped.
     r = await client.post(
         "/spice_routes",
         json=_recipe_payload(title="Sneaky", is_premium=True),
         headers=auth_header(uid="bob"),
     )
-    assert r.status_code == 201
+    assert r.status_code == 422, r.text
+    assert "is_premium" in r.text
+
+
+@pytest.mark.asyncio
+async def test_user_can_explicitly_set_is_premium_false(client: AsyncClient) -> None:
+    # Explicit False is fine — it's the default and matches what
+    # the server hardcodes anyway. Only `True` is rejected.
+    r = await client.post(
+        "/spice_routes",
+        json=_recipe_payload(title="Honest", is_premium=False),
+        headers=auth_header(uid="bob"),
+    )
+    assert r.status_code == 201, r.text
     assert r.json()["is_premium"] is False
 
 

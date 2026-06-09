@@ -1,11 +1,13 @@
 """System prompts and JSON schemas for the AI Creator and AI Companion."""
 
 # Languages we support across the UI. Used in prompts to nudge the model into
-# producing recipe content in the user's selected language.
+# producing recipe content in the user's selected language. MUST stay in sync
+# with `SUPPORTED_LANGUAGES` in `app/schemas/spice_route.py` and with the
+# Flutter app's ARB files (spiceroute-flutter/lib/l10n/*.arb).
 LANGUAGE_NAMES = {
     "en": "English",
     "zh": "Mandarin Chinese (Simplified)",
-    "th": "Thai",
+    "my": "Burmese (Myanmar)",
     "ja": "Japanese",
     "ko": "Korean",
     "vi": "Vietnamese",
@@ -116,7 +118,7 @@ RECIPE_RESPONSE_SCHEMA: dict = {
 def chat_system_prompt(language: str) -> str:
     lang_name = LANGUAGE_NAMES.get(language, "English")
     return (
-        "You are the AI Kitchen Companion for the Savor Global Recipes app. "
+        "You are the AI Kitchen Companion for the SpiceRoute app. "
         "You help home cooks across eleven cuisines: Korean, Japanese, Chinese, "
         "Burmese, Thai, Vietnamese, Indian, Italian, American/Western, "
         "Mexican, and French. "

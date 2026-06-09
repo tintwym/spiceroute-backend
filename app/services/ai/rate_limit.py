@@ -30,6 +30,14 @@ async def _bump(
 
     Uses INSERT ... ON CONFLICT DO UPDATE so we don't need a transaction-level
     lock and we get a single round-trip.
+
+    NOTE on commit ordering: we commit BEFORE raising 429. Otherwise the
+    failed-attempt increment rolls back when the HTTPException propagates,
+    which means a user spamming the endpoint past their quota never moves
+    the counter past `limit` — the limit IS still enforced (subsequent
+    requests still see `> limit` from the live UPDATE), but historical
+    over-quota attempts are invisible to logs/dashboards. Committing first
+    keeps the counter honest.
     """
     row = await db.execute(
         text(
@@ -44,12 +52,12 @@ async def _bump(
         {"ip": ip, "key": key_val},
     )
     count = row.scalar_one()
+    await db.commit()
     if count > limit:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=f"{label} rate limit exceeded ({limit} per period)",
         )
-    await db.commit()
 
 
 async def check_recipe_quota(db: AsyncSession, *, ip: str) -> None:

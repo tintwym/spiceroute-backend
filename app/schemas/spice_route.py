@@ -7,7 +7,13 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.models.cuisine import Cuisine
 
 NameStr = Annotated[str, Field(min_length=1, max_length=200)]
-SUPPORTED_LANGUAGES = ("en", "zh", "th", "ja", "ko", "vi")
+
+# Must stay in sync with the Flutter app's supported locales
+# (spiceroute-flutter/lib/l10n/*.arb). The product swapped Thai out for
+# Burmese ("my") earlier — backend was not updated, so every Burmese
+# AI generate/chat/save call returned 422 with the misleading error
+# "language must be one of (en, zh, th, ja, ko, vi)".
+SUPPORTED_LANGUAGES = ("en", "zh", "my", "ja", "ko", "vi")
 
 
 class IngredientIn(BaseModel):
@@ -75,6 +81,21 @@ class SpiceRouteCreate(SpiceRouteBase):
     tags: list[str] = Field(default_factory=list, max_length=50)
     image_url: str | None = Field(default=None, max_length=500)
 
+    @field_validator("is_premium")
+    @classmethod
+    def _reject_client_premium(cls, v: bool) -> bool:
+        # `is_premium` is server-controlled — only the curated seed
+        # script sets it. Before this validator, the field was accepted
+        # but silently overridden to False inside the route handler,
+        # which masked client mistakes (a client thinking it was
+        # successfully publishing a "premium" recipe). Reject loudly
+        # so callers see the field isn't theirs to set.
+        if v:
+            raise ValueError(
+                "is_premium is server-managed; clients cannot set it"
+            )
+        return v
+
     @field_validator("tags")
     @classmethod
     def _clean_tags(cls, v: list[str]) -> list[str]:
@@ -117,6 +138,39 @@ class SpiceRouteUpdate(BaseModel):
         if v not in SUPPORTED_LANGUAGES:
             raise ValueError(
                 f"language must be one of {SUPPORTED_LANGUAGES}; got {v!r}"
+            )
+        return v
+
+    @field_validator(
+        "prep_minutes",
+        "cook_minutes",
+        "servings",
+        "language",
+        "spice_level",
+        "is_public",
+        mode="before",
+    )
+    @classmethod
+    def _reject_explicit_none(cls, v: object, info) -> object:
+        """Reject `{"field": null}` on columns that map to non-nullable
+        SQL columns. Pydantic's `Optional[T]` syntax allowed any
+        client to send `{"language": null}` (or null for prep_minutes,
+        cook_minutes, servings, spice_level, is_public), which the
+        PATCH handler would `setattr` onto the ORM and then crash
+        with a 500 on `commit()` when the DB rejected the NOT NULL
+        violation. The intent of `Optional` here is "unset = leave
+        alone", NOT "set to null"; the distinction matters because
+        the underlying columns ARE non-nullable.
+
+        Allowing an explicit null only for fields that ARE nullable
+        on the model (cuisine, calories_per_serving, image_url,
+        description, ingredients, steps, tags) keeps the explicit
+        "clear this field" affordance for those columns.
+        """
+        if v is None:
+            raise ValueError(
+                f"{info.field_name} cannot be null; "
+                "omit the field to leave it unchanged"
             )
         return v
 

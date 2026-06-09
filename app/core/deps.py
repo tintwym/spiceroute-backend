@@ -3,6 +3,7 @@ from typing import Annotated
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
@@ -42,7 +43,7 @@ async def _resolve_user_from_token(
     updated their profile in Firebase.
     """
     try:
-        fb_user = verify_id_token(token)
+        fb_user = await verify_id_token(token)
     except FirebaseTokenError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -77,8 +78,20 @@ async def _resolve_user_from_token(
     # we just provisioned — the next request would then create a duplicate
     # firebase_uid INSERT and 500.
     if dirty:
-        await db.commit()
-        await db.refresh(user)
+        try:
+            await db.commit()
+            await db.refresh(user)
+        except IntegrityError:
+            # Race: two requests for the same brand-new uid both hit
+            # the SELECT-then-INSERT path; one wins, the other sees a
+            # UniqueViolation on `users.firebase_uid`. Roll back our
+            # failed flush and re-fetch — the winner's row is now
+            # visible and represents the same logical user.
+            await db.rollback()
+            result = await db.execute(
+                select(User).where(User.firebase_uid == fb_user.uid)
+            )
+            user = result.scalar_one()
 
     return user
 

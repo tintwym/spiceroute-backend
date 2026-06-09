@@ -240,7 +240,7 @@ See [`.env.example`](./.env.example). Defaults are dev-friendly; for real deploy
 | `AI_RATE_LIMIT_PER_DAY` | Default `30` — per-IP cap on `/ai/recipe/generate`. |
 | `AI_CHAT_PER_HOUR` | Default `50` — per-IP cap on `/ai/chat/stream`. |
 | `CORS_ORIGINS` | Comma-separated origins; `*` for local dev. |
-| `APP_NAME` | OpenAPI title. Default still `Savor Global Recipes API` for historical reasons. |
+| `APP_NAME` | OpenAPI title. Defaults to `SpiceRoute API`. |
 | `DEBUG` | FastAPI debug flag. |
 
 ### Neon URL format

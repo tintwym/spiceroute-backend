@@ -143,10 +143,18 @@ async def list_spice_routes(
 
     total = (await db.scalar(count_stmt)) or 0
 
+    # Stable sort: the seed script writes the 27 curated `is_premium`
+    # rows in a tight loop, so several share `created_at` to the
+    # millisecond. Without a tiebreaker, Postgres is free to return
+    # ties in any order — meaning the same recipe can show up on
+    # both page 1 and page 2 of `?offset=20`, or vanish from both.
+    # Sorting on `id` (UUID) as the final tiebreaker gives every
+    # request the same total ordering.
     stmt = (
         stmt.order_by(
             SpiceRoute.is_premium.desc(),
             SpiceRoute.created_at.desc(),
+            SpiceRoute.id,
         )
         .limit(limit)
         .offset(offset)

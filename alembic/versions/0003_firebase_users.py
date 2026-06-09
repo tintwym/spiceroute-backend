@@ -52,6 +52,41 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """One-way-ish migration.
+
+    The upgrade deliberately drops `users.email`'s NOT NULL and UNIQUE
+    constraints because Apple Sign-In with private relay can produce
+    either NULL emails or stable-but-per-app aliases that may collide
+    if the same human signs in twice. After running real users
+    through the upgrade, the table will almost certainly contain
+    duplicates or NULLs that would cause a naive `CREATE UNIQUE`
+    here to fail mid-rollback and leave the schema half-migrated.
+
+    Bail loudly BEFORE attempting the constraint create so the
+    operator sees a clear, actionable error rather than a cryptic
+    constraint-violation stack trace partway through the downgrade.
+    """
+    bind = op.get_bind()
+    null_count = bind.execute(
+        sa.text("SELECT COUNT(*) FROM users WHERE email IS NULL")
+    ).scalar() or 0
+    dupe_count = bind.execute(
+        sa.text(
+            "SELECT COUNT(*) FROM ("
+            "  SELECT email FROM users WHERE email IS NOT NULL "
+            "  GROUP BY email HAVING COUNT(*) > 1"
+            ") AS dupes"
+        )
+    ).scalar() or 0
+    if null_count > 0 or dupe_count > 0:
+        raise RuntimeError(
+            "Refusing to downgrade 0003: users.email has "
+            f"{null_count} NULL rows and {dupe_count} duplicate-email "
+            "groups. The downgrade re-applies NOT NULL + UNIQUE which "
+            "would fail mid-migration. Resolve the data first (delete "
+            "or merge the offending rows) then re-run."
+        )
+
     op.add_column(
         "users",
         sa.Column("password_hash", sa.String(255), nullable=True),

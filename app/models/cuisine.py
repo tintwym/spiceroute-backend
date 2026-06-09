@@ -2,7 +2,10 @@ from enum import StrEnum
 
 
 class Cuisine(StrEnum):
-    """The 10 cuisines surfaced by the Explore tab."""
+    """The 11 cuisines surfaced by the Explore tab.
+
+    Keep this list in sync with `spiceroute-flutter/lib/models/cuisine.dart`
+    and the cuisine pills in `lib/shared/cuisine_pill_bar.dart`."""
 
     KOREAN = "korean"
     JAPANESE = "japanese"

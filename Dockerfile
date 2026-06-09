@@ -32,4 +32,10 @@ ENV PATH="/opt/venv/bin:${PATH}"
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+# Production-safe CMD: bind to 0.0.0.0:8000 with NO --reload flag.
+# Hot-reload is a dev-only convenience, so it lives in
+# docker-compose.yml's `command:` override instead of leaking into
+# every consumer of this image. Render also overrides this via
+# `dockerCommand:` in render.yaml so it can use Render's injected
+# $PORT environment variable.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -16,6 +16,7 @@ overrides real verification.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 
@@ -59,10 +60,20 @@ class FirebaseTokenError(Exception):
     pass
 
 
-def verify_id_token(token: str) -> FirebaseUser:
+async def verify_id_token(token: str) -> FirebaseUser:
     """Verify a Firebase ID token and return a `FirebaseUser`.
 
     Raises `FirebaseTokenError` for any failure (invalid sig, expired, etc.).
+
+    NOTE: `firebase_admin.auth.verify_id_token` is a SYNCHRONOUS function
+    that performs blocking network I/O (it fetches and caches Google's
+    public keys, validates signature/audience/expiry, and on cache miss
+    can take 100-300 ms). Running it inline inside FastAPI's async
+    handlers would freeze the entire event loop for the duration —
+    every concurrent request would queue up serially behind it,
+    capping effective throughput at ~3-10 RPS on the auth path.
+    We delegate to `asyncio.to_thread` so the blocking call runs in
+    the default thread executor and the event loop stays responsive.
     """
     if not token:
         raise FirebaseTokenError("missing token")
@@ -81,7 +92,7 @@ def verify_id_token(token: str) -> FirebaseUser:
     from firebase_admin import auth
 
     try:
-        decoded = auth.verify_id_token(token)
+        decoded = await asyncio.to_thread(auth.verify_id_token, token)
     except Exception as exc:
         raise FirebaseTokenError(str(exc)) from exc
 

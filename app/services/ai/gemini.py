@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import threading
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -124,6 +125,12 @@ async def chat_stream(
 
     queue: asyncio.Queue[str | None] = asyncio.Queue()
     loop = asyncio.get_running_loop()
+    # Set by the consumer side when the async generator is closed
+    # (client disconnected, request cancelled, etc.). The producer
+    # thread polls it on every chunk so it can bail out instead of
+    # continuing to drain the (paid, slow) Gemini response into a
+    # queue nobody is reading from.
+    cancel_flag = threading.Event()
 
     def _produce() -> None:
         try:
@@ -133,6 +140,16 @@ async def chat_stream(
                 config=config,
             )
             for chunk in stream:
+                if cancel_flag.is_set():
+                    # Best-effort tear-down of the upstream HTTP stream
+                    # so Gemini stops generating server-side too.
+                    closer = getattr(stream, "close", None)
+                    if callable(closer):
+                        try:
+                            closer()
+                        except Exception:
+                            log.debug("gemini stream close failed", exc_info=True)
+                    return
                 text = chunk.text or ""
                 if text:
                     asyncio.run_coroutine_threadsafe(queue.put(text), loop)
@@ -152,7 +169,22 @@ async def chat_stream(
                 break
             yield item
     finally:
-        await task
+        # If we got here because of a client disconnect (CancelledError
+        # propagating out of `await queue.get()` or a `GeneratorExit`),
+        # tell the producer to stop and stop awaiting it. Awaiting the
+        # task synchronously here would block the request lifecycle on
+        # an upstream call we no longer care about.
+        cancel_flag.set()
+        if not task.done():
+            # Drain any pending sentinel so the producer's
+            # `run_coroutine_threadsafe` doesn't deadlock waiting for
+            # queue space (asyncio.Queue is unbounded by default, but
+            # being explicit costs nothing).
+            try:
+                while True:
+                    queue.get_nowait()
+            except asyncio.QueueEmpty:
+                pass
 
 
 # ---------------------------------------------------------------------------
