@@ -63,7 +63,14 @@ class FirebaseTokenError(Exception):
 async def verify_id_token(token: str) -> FirebaseUser:
     """Verify a Firebase ID token and return a `FirebaseUser`.
 
-    Raises `FirebaseTokenError` for any failure (invalid sig, expired, etc.).
+    Raises `FirebaseTokenError` for any failure (invalid sig, expired,
+    or no credentials configured in production).
+
+    Three states gated here (see `app/main.py` for the full picture):
+
+      * REAL MODE      — credentials configured; verify with Firebase
+      * DEV MODE       — DEBUG=true + no creds; accept `dev:<uid>`
+      * LOCKDOWN MODE  — DEBUG=false + no creds; reject EVERYTHING
 
     NOTE: `firebase_admin.auth.verify_id_token` is a SYNCHRONOUS function
     that performs blocking network I/O (it fetches and caches Google's
@@ -77,6 +84,21 @@ async def verify_id_token(token: str) -> FirebaseUser:
     """
     if not token:
         raise FirebaseTokenError("missing token")
+
+    # LOCKDOWN MODE: no credentials AND not in debug. Reject every
+    # token (including `dev:<uid>`) so the service can boot in a
+    # production-shaped deploy that hasn't received credentials yet
+    # WITHOUT exposing an impersonation surface. The caller catches
+    # FirebaseTokenError and surfaces a 503 to the client; public
+    # (unauthed) endpoints keep working as normal.
+    if _settings.firebase_dev_mode and not _settings.debug:
+        raise FirebaseTokenError(
+            "Authentication is not configured on the server. The operator "
+            "needs to set FIREBASE_CREDENTIALS_JSON (or "
+            "FIREBASE_CREDENTIALS_PATH) before authenticated endpoints "
+            "can be used. Public browsing, AI Companion, and AI Creator "
+            "continue to work in the meantime."
+        )
 
     if _settings.firebase_dev_mode and token.startswith("dev:"):
         return _parse_dev_token(token)

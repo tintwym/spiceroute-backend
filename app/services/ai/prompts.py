@@ -68,7 +68,14 @@ RECIPE_RESPONSE_SCHEMA: dict = {
         },
         "language": {
             "type": "string",
-            "enum": ["en", "zh", "th", "ja", "ko", "vi"],
+            # MUST stay in lock-step with `SUPPORTED_LANGUAGES` in
+            # `app/schemas/spice_route.py`. Drift here was the cause of
+            # a silent Burmese-generation bug: with `my` missing from
+            # the enum, Gemini fell back to `en` and the saved row was
+            # mis-tagged (or rejected by Pydantic) even though the
+            # prose was Burmese. Adding a language to the app means
+            # updating BOTH places.
+            "enum": ["en", "zh", "my", "ja", "ko", "vi"],
         },
         "spice_level": {"type": "integer", "minimum": 0, "maximum": 3},
         "calories_per_serving": {

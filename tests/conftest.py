@@ -11,10 +11,12 @@ os.environ.setdefault("CORS_ORIGINS", "*")
 os.environ.setdefault(
     "FIREBASE_CREDENTIALS_PATH", "/tmp/__no_such_firebase_creds.json"
 )
-# `app.main` now hard-fails the boot if dev-mode auth is active while
+# `app.main` enters LOCKDOWN MODE if dev-mode auth is active while
 # DEBUG=false (safety gate against accidentally shipping dev-token
-# acceptance to production). Tests legitimately run in dev mode, so
-# flip DEBUG on here.
+# acceptance to production). In that mode the service boots normally
+# but `verify_id_token` rejects every credential with a 503. Tests
+# legitimately run in dev mode and need `dev:<uid>` tokens to work,
+# so flip DEBUG on here.
 os.environ.setdefault("DEBUG", "true")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))

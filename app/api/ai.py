@@ -96,9 +96,15 @@ async def generate_recipe(
                 language=payload.language,
             )
         except gemini.AIError as exc2:
+            # Log full traceback server-side; return a stable generic
+            # message to the client. Echoing `str(exc2)` into the
+            # response body leaks Gemini SDK internals (project IDs,
+            # quota structure, internal call stacks) into client logs
+            # and crash reporters.
+            log.exception("gemini generation failed twice")
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"AI generation failed: {exc2}",
+                detail="AI generation is temporarily unavailable",
             ) from exc2
 
     # The model occasionally returns extra keys (e.g. `image_prompt`); strip
@@ -106,10 +112,13 @@ async def generate_recipe(
     try:
         recipe = SpiceRouteCreate.model_validate(raw)
     except Exception as exc:
+        # Validation errors can include the FULL invalid payload, which
+        # in turn contains the user's idea + model output — neither
+        # belongs in a client-facing detail string.
         log.warning("gemini payload failed schema: %r -> %s", raw, exc)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"AI returned invalid recipe: {exc}",
+            detail="AI returned a malformed recipe; please try again",
         ) from exc
 
     saved: SpiceRouteDetail | None = None
@@ -193,10 +202,15 @@ async def chat_stream(
                 history=history, language=payload.language
             ):
                 yield f"data: {json.dumps({'type': 'delta', 'text': chunk})}\n\n"
-        except Exception as exc:
+        except Exception:
+            # Stable, generic error frame — `str(exc)` carries Gemini
+            # SDK internals (project IDs, internal call paths, stack
+            # traces) that don't belong in a client SSE payload. The
+            # raw exception is still logged server-side via
+            # `log.exception(...)` for ops debugging.
             log.exception("chat stream failed")
             yield (
-                f"data: {json.dumps({'type': 'error', 'message': str(exc)})}\n\n"
+                f"data: {json.dumps({'type': 'error', 'message': 'chat stream failed'})}\n\n"
             )
         yield f"data: {json.dumps({'type': 'done'})}\n\n"
 

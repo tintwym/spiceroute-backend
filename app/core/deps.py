@@ -1,3 +1,4 @@
+import logging
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
@@ -6,9 +7,13 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.db.session import get_db
 from app.models.user import User
 from app.services.firebase import FirebaseTokenError, verify_id_token
+
+log = logging.getLogger(__name__)
+_settings = get_settings()
 
 # We use HTTPBearer with auto_error=False so we can produce our own 401 body
 # (and so OptionalCurrentUser can resolve to None when the header is absent).
@@ -45,9 +50,32 @@ async def _resolve_user_from_token(
     try:
         fb_user = await verify_id_token(token)
     except FirebaseTokenError as exc:
+        # Distinguish "your token is bad" (client error) from
+        # "the server hasn't been configured with Firebase
+        # credentials yet" (server-side config error). The latter
+        # is what happens when the backend boots in LOCKDOWN MODE
+        # (no creds + !debug) — the client should retry once an
+        # operator finishes the setup, not prompt the user to sign
+        # in again.
+        if _settings.firebase_dev_mode and not _settings.debug:
+            # Log the operator-facing detail server-side so deploy
+            # logs explain the misconfig without leaking the missing
+            # env-var name to anonymous callers.
+            log.warning(
+                "Auth rejected because backend is in LOCKDOWN MODE "
+                "(set FIREBASE_CREDENTIALS_JSON to enable auth)."
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="authentication service is temporarily unavailable",
+            ) from exc
+        # Generic 401 — don't echo the underlying exception text to
+        # the client. The detail can leak Firebase SDK internals
+        # (project IDs, token shapes, line numbers) into client logs.
+        log.info("auth rejected: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"invalid token: {exc}",
+            detail="invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
 
@@ -117,10 +145,18 @@ async def get_current_user_optional(
         return None
     try:
         return await _resolve_user_from_token(creds.credentials, db)
-    except HTTPException:
-        # Optional auth: an invalid token is treated as "no user" for the
-        # purposes of routes that work for both anon + authed callers.
-        return None
+    except HTTPException as exc:
+        # Optional auth: a *malformed* token is treated as "no user"
+        # for routes that work for both anon + authed callers (401).
+        # But a server-side config failure (503 lockdown) is NOT a
+        # client error — silently demoting an authenticated user to
+        # anon would surface as a confusing "404 recipe not found"
+        # on their own private recipe, or "401 sign in to save" on
+        # the AI creator. Re-raise the 503 so the real cause reaches
+        # the client.
+        if exc.status_code == status.HTTP_401_UNAUTHORIZED:
+            return None
+        raise
 
 
 DbSession = Annotated[AsyncSession, Depends(get_db)]

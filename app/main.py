@@ -12,32 +12,48 @@ from app.db.session import engine
 log = logging.getLogger(__name__)
 settings = get_settings()
 
-# CRITICAL safety gate: refuse to boot if the backend would accept dev
-# tokens in a production-shaped environment.
+# Three-state auth posture, picked at boot:
 #
-# Dev mode flips ON whenever NEITHER `FIREBASE_CREDENTIALS_JSON` nor a
-# file at `FIREBASE_CREDENTIALS_PATH` is present. In any container/PaaS
-# deploy (Render, Fly, Railway, Vercel) the file is NOT shipped — it has
-# to be supplied via the inline env var. If an operator forgets to paste
-# `FIREBASE_CREDENTIALS_JSON` in the Render dashboard, the service would
-# come up perfectly happy AND start accepting `Authorization: Bearer
-# dev:<victim_uid>` tokens, granting full impersonation of any user.
-# Hard-failing the boot makes the misconfig instantly visible (Render's
-# health check goes red on first startup) instead of silently turning
-# every account into a free one for attackers.
+#   1. REAL MODE
+#      Credentials are configured (`FIREBASE_CREDENTIALS_JSON` or a
+#      file at `FIREBASE_CREDENTIALS_PATH`). Real Firebase ID tokens
+#      are verified. This is the production-ready state.
 #
-# Locally, `DEBUG=true` is the explicit opt-in to dev-mode auth.
+#   2. DEV MODE
+#      No credentials AND `DEBUG=true`. The verifier accepts
+#      `dev:<uid>` synthetic tokens so the test suite and a local dev
+#      who hasn't set up a Firebase project yet can still exercise
+#      auth-gated endpoints. NEVER ship this state to production —
+#      anyone could send `Authorization: Bearer dev:<your_uid>` and
+#      impersonate any of your users.
+#
+#   3. LOCKDOWN MODE  ← the safety net we want for "no creds + !debug"
+#      No credentials AND `DEBUG=false`. We boot the service so
+#      public endpoints (browse, AI Companion, AI Creator) keep
+#      working, but `verify_id_token` REJECTS every token (real and
+#      dev) with a clear 503 telling the caller credentials need
+#      configuring. This is materially safer than what existed
+#      before this safety net (which silently turned every account
+#      into a free one for attackers) AND it doesn't hard-fail the
+#      boot the way a `raise RuntimeError` here would — operators on
+#      PaaS platforms can ship the infrastructure first and add the
+#      Firebase secret afterward without the service stopping in
+#      between.
+#
+# The state is determined entirely by Settings + env; nothing else
+# in the app needs to branch on it (the firebase service module
+# enforces the lockdown in `verify_id_token`).
 if settings.firebase_dev_mode and not settings.debug:
-    raise RuntimeError(
-        "Refusing to boot: Firebase is in DEV MODE (no credentials "
-        "configured) but DEBUG=false suggests production. In this state "
-        "the API would accept any 'dev:<uid>' bearer token as that user, "
-        "letting anyone impersonate anyone. Set FIREBASE_CREDENTIALS_JSON "
-        "(or FIREBASE_CREDENTIALS_PATH) before starting the service. If "
-        "this IS a local dev session, set DEBUG=true."
+    log.error(
+        "Firebase is in LOCKDOWN MODE — no credentials configured and "
+        "DEBUG=false. Public endpoints work, but every authenticated "
+        "request will return 503 until you set FIREBASE_CREDENTIALS_JSON "
+        "(or FIREBASE_CREDENTIALS_PATH). This is the safety fallback "
+        "for production-shaped deploys that haven't received credentials "
+        "yet — it intentionally does NOT accept 'dev:<uid>' tokens, so "
+        "no one can impersonate users while you finish the setup."
     )
-
-if settings.firebase_dev_mode:
+elif settings.firebase_dev_mode:
     log.warning(
         "Firebase is in DEV MODE — accepting 'dev:<uid>' tokens. "
         "This is gated by DEBUG=true; never set DEBUG=true in production."
