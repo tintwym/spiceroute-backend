@@ -74,9 +74,9 @@ services:
       #                       to talk to this backend.
       #
       # NEVER ship `*` to production — it disables CORS protection.
-      # Update the explicit list once you know your real domain.
+      # Update the explicit list when the production domain changes.
       - key: CORS_ORIGINS
-        value: https://your-app.vercel.app
+        value: https://spiceroute-recipe.vercel.app
       - key: CORS_ORIGIN_REGEX
         value: ^https://([a-z0-9-]+\.)*vercel\.app$
 

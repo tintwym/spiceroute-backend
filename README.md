@@ -182,7 +182,7 @@ The blueprint also:
    postgresql+asyncpg://USER:PASS@dpg-xxx.singapore-postgres.render.com/spiceroute?ssl=require
    ```
 
-4. Click **Save Changes** — Render triggers a deploy automatically. After it goes green, your URL is `https://spiceroute-api.onrender.com` (or whatever name you set).
+4. Click **Save Changes** — Render triggers a deploy automatically. After it goes green, your URL is `https://spiceroute-api.onrender.com` (or whatever name Render assigned — this project's live URL is `https://spiceroute-backend-ggu5.onrender.com`).
 5. **Update CORS** — if you renamed the service or attached a custom domain, edit `CORS_ORIGINS` in the blueprint (or directly in the Environment tab) so it lists your Vercel domain(s).
 
 #### Required env / secrets summary
@@ -198,7 +198,7 @@ The blueprint also:
 #### Verifying
 
 ```bash
-curl https://<your-service>.onrender.com/health
+curl https://spiceroute-backend-ggu5.onrender.com/health
 # → {"status":"ok","database":"ok"}
 ```
 
