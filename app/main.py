@@ -2,8 +2,9 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.api import ai, auth, health, spice_routes, tags
 from app.core.config import get_settings
@@ -106,3 +107,33 @@ app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(spice_routes.router, prefix="/spice_routes", tags=["spice_routes"])
 app.include_router(tags.router, prefix="/tags", tags=["tags"])
 app.include_router(ai.router, prefix="/ai", tags=["ai"])
+
+
+# Global 500 handler so unhandled exceptions still come back with CORS
+# headers attached. Without this, Starlette's built-in
+# `ServerErrorMiddleware` returns a bare 500 BEFORE CORSMiddleware gets
+# to add `Access-Control-Allow-Origin`, and browsers misreport the real
+# crash as "blocked by CORS policy" — masking the actual cause (DB
+# unreachable, missing env var, etc.) behind a misleading network-tab
+# error. We catch every exception, log it server-side, and return a
+# generic 500 JSON body. CORSMiddleware sits above this in the stack
+# so the headers are applied on the way out.
+#
+# The detail string is deliberately generic — `repr(exc)` would leak
+# file paths, package versions, and sometimes credentials into client
+# logs. Operators read the real traceback in Render logs instead.
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(
+    request: Request, exc: Exception
+) -> JSONResponse:
+    log.exception(
+        "Unhandled %s on %s %s: %s",
+        type(exc).__name__,
+        request.method,
+        request.url.path,
+        exc,
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "internal server error"},
+    )
