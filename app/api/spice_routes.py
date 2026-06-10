@@ -73,7 +73,7 @@ async def list_spice_routes(
 
     Filters:
         q             title / description / ingredient name substring
-        cuisine       one of the 11 supported cuisines
+        cuisine       one of the 16 supported cuisines
         language      one of en, zh, my, ja, ko, vi
         tag           free-form tag exact match
         max_minutes   prep + cook upper bound

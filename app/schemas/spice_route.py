@@ -12,7 +12,10 @@ NameStr = Annotated[str, Field(min_length=1, max_length=200)]
 # (spiceroute-flutter/lib/l10n/*.arb). The product swapped Thai out for
 # Burmese ("my") earlier — backend was not updated, so every Burmese
 # AI generate/chat/save call returned 422 with the misleading error
-# "language must be one of (en, zh, th, ja, ko, vi)".
+# "language must be one of (en, zh, my, ja, ko, vi)". Burmese (`my`)
+# replaced Thai (`th`) in v2 — the old `th` is intentionally NOT
+# accepted any more; rows persisted under `th` from earlier deploys
+# were migrated in `alembic/versions/0002_savor_global.py`.
 SUPPORTED_LANGUAGES = ("en", "zh", "my", "ja", "ko", "vi")
 
 

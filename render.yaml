@@ -47,9 +47,11 @@ services:
     # service to listen on $PORT, typically 10000).
     dockerCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
 
-    # Migrations run on every deploy, BEFORE traffic shifts to the new
-    # instance. Failures abort the deploy.
-    preDeployCommand: alembic upgrade head
+    # Release tasks run on every deploy, BEFORE traffic shifts to the
+    # new instance. Migrations must succeed (failures abort the deploy);
+    # the curated-recipes seed is best-effort. See scripts/release.sh
+    # for the full breakdown.
+    preDeployCommand: bash scripts/release.sh
 
     envVars:
       # ---- Non-secret config ---------------------------------------

@@ -52,6 +52,11 @@ RECIPE_RESPONSE_SCHEMA: dict = {
         "servings": {"type": "integer", "minimum": 1, "maximum": 50},
         "cuisine": {
             "type": "string",
+            # MUST stay in lock-step with `Cuisine` in
+            # `app/models/cuisine.py` and the Flutter `Cuisine` enum in
+            # `lib/models/spice_route.dart`. Adding a cuisine means
+            # updating all three places (plus an Alembic migration to
+            # ALTER the Postgres `cuisine_type` enum).
             "enum": [
                 "korean",
                 "japanese",
@@ -64,6 +69,11 @@ RECIPE_RESPONSE_SCHEMA: dict = {
                 "american_western",
                 "mexican",
                 "french",
+                "greek",
+                "spanish",
+                "malaysian",
+                "german",
+                "indonesian",
             ],
         },
         "language": {
@@ -126,9 +136,10 @@ def chat_system_prompt(language: str) -> str:
     lang_name = LANGUAGE_NAMES.get(language, "English")
     return (
         "You are the AI Kitchen Companion for the SpiceRoute app. "
-        "You help home cooks across eleven cuisines: Korean, Japanese, Chinese, "
-        "Burmese, Thai, Vietnamese, Indian, Italian, American/Western, "
-        "Mexican, and French. "
+        "You help home cooks across sixteen cuisines: Korean, Japanese, "
+        "Chinese, Burmese, Thai, Vietnamese, Indian, Italian, "
+        "American/Western, Mexican, French, Greek, Spanish, Malaysian, "
+        "German, and Indonesian. "
         "Give practical, friendly answers about ingredient substitutes, "
         "cooking techniques, dietary adaptations (vegan, keto, gluten-free), "
         "and quick recipes. Keep responses tight (3-6 sentences unless the "

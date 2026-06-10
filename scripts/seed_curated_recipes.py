@@ -4,8 +4,16 @@ Idempotent: re-running won't duplicate existing curated recipes (matched by
 exact title). Safe to run after every deploy.
 
 Usage:
-    uv run python -m scripts.seed_curated_recipes
+    uv run python -m scripts.seed_curated_recipes            # full run
+    uv run python -m scripts.seed_curated_recipes --quick    # deploy hook
+
+The `--quick` flag skips the (slow, network-bound) image-resolution step
+for recipes that already exist with a non-empty `image_path`. New rows
+still resolve images, but re-runs against a populated DB return in a
+couple of seconds instead of 30+. Use this from `release.sh` so every
+Render deploy isn't blocked on HEAD requests to Flickr.
 """
+import argparse
 import asyncio
 import re
 import urllib.error
@@ -310,7 +318,7 @@ def _augmented_tags(spec_title: str, base_tags: list[str]) -> list[str]:
     return out
 
 
-async def main() -> None:
+async def main(*, quick: bool = False) -> None:
     # ------------------------------------------------------------------
     # Phase 1 (no DB): figure out which titles need resolution and which
     # don't, without holding a DB connection. We open a short read
@@ -353,6 +361,13 @@ async def main() -> None:
             continue
         if title in existing_snapshot:
             _, current_image, _ = existing_snapshot[title]
+            if quick and current_image:
+                # Deploy-hook path: trust whatever's already in the DB
+                # so we don't burn 10+ seconds per recipe HEAD-checking
+                # Flickr on every release. Use the periodic full run
+                # (without --quick) to freshen dead image URLs.
+                resolved_by_title[title] = current_image
+                continue
             needs_freeze = (
                 not current_image
                 or "picsum.photos" in current_image
@@ -367,7 +382,12 @@ async def main() -> None:
             else:
                 resolved_by_title[title] = current_image
         else:
-            resolved_by_title[title] = _resolve_image_url(spec_image)
+            # New rows still go through the full resolver — we'd rather
+            # take the hit once and ship a verified image than gamble on
+            # the spec URL being alive.
+            resolved_by_title[title] = (
+                spec_image if quick else _resolve_image_url(spec_image)
+            )
 
     # ------------------------------------------------------------------
     # Phase 2 (DB): open a fresh, short-lived session and write all
@@ -486,4 +506,16 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--quick",
+        action="store_true",
+        help=(
+            "Skip the network-bound image-resolution step for recipes "
+            "that already exist in the DB. Use this from release.sh on "
+            "every deploy; use a periodic non-quick run to refresh dead "
+            "Flickr URLs."
+        ),
+    )
+    args = parser.parse_args()
+    asyncio.run(main(quick=args.quick))

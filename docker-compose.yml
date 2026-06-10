@@ -12,8 +12,14 @@ services:
       # Bind-mount source for hot-reload during development. The venv lives
       # outside /app (at /opt/venv inside the image) so it isn't shadowed.
       - .:/app
+    # Mirrors what Render does at deploy time (release.sh) so local
+    # dev gets the same migrations + curated-recipe seed treatment,
+    # PLUS a dev-only `seed_dev_users` pass so signing in with the
+    # `dev:alice` / `dev:bob` / `dev:carol` stub tokens shows real
+    # authored recipes on the My Recipes tab.
     command: >
-      sh -c "alembic upgrade head &&
+      sh -c "bash scripts/release.sh &&
+             python -m scripts.seed_dev_users || true &&
              uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
 
   # Local Postgres for offline development. Opt in with `--profile local-db`.
