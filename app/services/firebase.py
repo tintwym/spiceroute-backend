@@ -110,12 +110,49 @@ async def verify_id_token(token: str) -> FirebaseUser:
             "enable real verification."
         )
 
-    _ensure_initialized()
-    from firebase_admin import auth
-
+    # Wrap BOTH the SDK initialisation AND the token verification in the
+    # same try/except. Previously `_ensure_initialized()` and the
+    # `from firebase_admin import auth` lines lived outside the try
+    # block — meaning any failure during SDK boot (malformed
+    # `FIREBASE_CREDENTIALS_JSON`, missing file, ImportError, even a
+    # google-auth library bug) propagated as an uncaught exception
+    # and FastAPI returned HTTP 500. That in turn poisoned every
+    # `OptionalCurrentUser`-gated endpoint for signed-in callers:
+    # `/spice_routes` would crash for anyone who passed an
+    # `Authorization` header, so the Explore grid went blank as
+    # soon as the user logged in (the Flutter client just sees a 500
+    # and falls through to its empty-list error path).
+    #
+    # By catching everything here and re-raising as
+    # `FirebaseTokenError`, the upstream `OptionalCurrentUser`
+    # dependency cleanly demotes the caller to anonymous (returns
+    # `None` for the 401 path), so public endpoints keep working
+    # even when the backend's Firebase configuration is broken. The
+    # operator still sees the original traceback in the Render log
+    # (logged below) — they just no longer take the user-facing
+    # listing down with them.
     try:
+        _ensure_initialized()
+        from firebase_admin import auth
+
         decoded = await asyncio.to_thread(auth.verify_id_token, token)
+    except FirebaseTokenError:
+        # Already a known token-shape failure (e.g. raised by
+        # `_ensure_initialized` itself in a future refactor) — just
+        # re-raise so we don't double-wrap the message.
+        raise
     except Exception as exc:
+        # Distinguish SDK boot failures from token validation
+        # failures in the log so the operator knows which one to
+        # investigate. "Cannot verify a token because the SDK isn't
+        # configured" and "this specific token is bad" both surface
+        # as a 401 to the client but mean very different things to
+        # the on-call.
+        log.warning(
+            "verify_id_token failed: %s: %s",
+            type(exc).__name__,
+            exc,
+        )
         raise FirebaseTokenError(str(exc)) from exc
 
     uid = decoded.get("uid") or decoded.get("user_id")
