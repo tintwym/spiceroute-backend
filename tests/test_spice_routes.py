@@ -201,3 +201,184 @@ async def test_mine_filter(client: AsyncClient) -> None:
 
     r = await client.get("/spice_routes", params={"mine": "true"})
     assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_translate_to_swaps_title_and_description(
+    client: AsyncClient, db_session
+) -> None:
+    """`?translate_to=<locale>` overlays the per-locale title +
+    description on the response. Locales not present in `translations`
+    fall back silently to the source columns; rows whose `translations`
+    is null/empty are unaffected.
+
+    Regression guard for the "Burmese UI shows English Quiche Lorraine
+    title + description" bug — without per-locale overrides + the
+    `translate_to` query param the seeded English copy would leak into
+    every non-English user's grid forever.
+    """
+    from app.models.spice_route import SpiceRoute
+
+    row = SpiceRoute(
+        title="Quiche Lorraine",
+        description="Buttery shortcrust filled with bacon, eggs, and cream.",
+        cuisine="french",
+        language="en",
+        prep_minutes=30,
+        cook_minutes=45,
+        servings=6,
+        is_public=True,
+        is_premium=True,
+        spice_level=0,
+        translations={
+            "ko": {
+                "title": "키슈 로렌",
+                "description": "버터 향 가득한 쇼트크러스트에 베이컨과 크림.",
+            },
+            # Burmese intentionally omits "title" — the fallback path
+            # should keep the original "Quiche Lorraine" but swap in
+            # the Burmese description, which is the exact contract
+            # the curated seed relies on for dishes whose names have
+            # no settled Burmese transliteration.
+            "my": {"description": "ပြင်သစ်ဆား​လက်ပန်း"},
+        },
+    )
+    db_session.add(row)
+    await db_session.commit()
+
+    # No translate_to: source columns flow through untouched, and
+    # the JSONB `translations` blob never leaks into the wire shape.
+    r = await client.get("/spice_routes")
+    assert r.status_code == 200
+    item = r.json()["items"][0]
+    assert item["title"] == "Quiche Lorraine"
+    assert "Buttery shortcrust" in item["description"]
+    assert "translations" not in item
+
+    # Korean: both title AND description get swapped.
+    r = await client.get("/spice_routes", params={"translate_to": "ko"})
+    item = r.json()["items"][0]
+    assert item["title"] == "키슈 로렌"
+    assert item["description"] == "버터 향 가득한 쇼트크러스트에 베이컨과 크림."
+
+    # Burmese: title falls back (no override), description swaps.
+    r = await client.get("/spice_routes", params={"translate_to": "my"})
+    item = r.json()["items"][0]
+    assert item["title"] == "Quiche Lorraine"
+    assert item["description"] == "ပြင်သစ်ဆား​လက်ပန်း"
+
+    # Vietnamese: not in translations — silent fall-through to source.
+    r = await client.get("/spice_routes", params={"translate_to": "vi"})
+    item = r.json()["items"][0]
+    assert item["title"] == "Quiche Lorraine"
+    assert "Buttery shortcrust" in item["description"]
+
+    # Detail endpoint follows the same contract.
+    rid = item["id"]
+    detail = (
+        await client.get(
+            f"/spice_routes/{rid}", params={"translate_to": "ko"}
+        )
+    ).json()
+    assert detail["title"] == "키슈 로렌"
+
+
+@pytest.mark.asyncio
+async def test_translate_to_ignores_rows_without_translations(
+    client: AsyncClient, db_session
+) -> None:
+    """Rows whose `translations` column is NULL pass through unchanged
+    regardless of the `translate_to` value. The 30 curated seeds that
+    haven't been hand-translated yet rely on this — they should keep
+    serving English content while the localised copy gets backfilled
+    rather than 500ing or going blank.
+    """
+    from app.models.spice_route import SpiceRoute
+
+    row = SpiceRoute(
+        title="Bibimbap",
+        description="Mixed rice bowl.",
+        cuisine="korean",
+        language="en",
+        prep_minutes=25,
+        cook_minutes=15,
+        servings=2,
+        is_public=True,
+        is_premium=True,
+        spice_level=1,
+        translations=None,
+    )
+    db_session.add(row)
+    await db_session.commit()
+
+    r = await client.get("/spice_routes", params={"translate_to": "ko"})
+    item = r.json()["items"][0]
+    assert item["title"] == "Bibimbap"
+    assert item["description"] == "Mixed rice bowl."
+
+
+@pytest.mark.asyncio
+async def test_translate_to_does_not_mutate_source_row(
+    client: AsyncClient, db_session
+) -> None:
+    """Critical safety regression: hitting `?translate_to=<locale>`
+    must NOT persist the translated string back into
+    `spice_routes.title` / `description`. Earlier versions of the
+    overlay mutated the ORM row in place; that worked only because
+    the read endpoints don't currently commit, but any future code
+    path that triggered a commit on the same session (a future write
+    endpoint sharing the session, a middleware, or just an
+    accidental `await db.commit()`) would have silently corrupted
+    the seed data with the translated string.
+
+    The refactor returns an override tuple instead of writing to the
+    row — this test pins that contract by issuing the translate
+    request, then re-reading the row directly from the DB and
+    asserting the source columns are untouched.
+    """
+    from sqlalchemy import select
+
+    from app.models.spice_route import SpiceRoute
+
+    row = SpiceRoute(
+        title="Ratatouille",
+        description="Provençal stewed vegetables.",
+        cuisine="french",
+        language="en",
+        prep_minutes=20,
+        cook_minutes=40,
+        servings=4,
+        is_public=True,
+        is_premium=True,
+        spice_level=0,
+        translations={
+            "ko": {
+                "title": "라따뚜이",
+                "description": "프로방스식 채소 스튜.",
+            },
+        },
+    )
+    db_session.add(row)
+    await db_session.commit()
+    row_id = row.id
+
+    r = await client.get("/spice_routes", params={"translate_to": "ko"})
+    assert r.json()["items"][0]["title"] == "라따뚜이"
+
+    detail = await client.get(
+        f"/spice_routes/{row_id}", params={"translate_to": "ko"}
+    )
+    assert detail.json()["title"] == "라따뚜이"
+
+    # Round-trip the row from the DB to prove the source columns
+    # weren't silently mutated by the overlay path. expire_all() is
+    # needed because the session may still hold the cached attrs
+    # from the test's initial insert.
+    db_session.expire_all()
+    persisted = (
+        await db_session.execute(
+            select(SpiceRoute).where(SpiceRoute.id == row_id)
+        )
+    ).scalar_one()
+    assert persisted.title == "Ratatouille"
+    assert persisted.description == "Provençal stewed vegetables."

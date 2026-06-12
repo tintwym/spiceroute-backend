@@ -35,6 +35,22 @@ class RecipeSpec(TypedDict):
     # Optional. Falls back to a per-cuisine default in the seed script when
     # unset, so existing entries keep working without manual annotation.
     calories: NotRequired[int]
+    # Optional per-locale title + description overrides. Shape:
+    #
+    #   {
+    #     "my": {"title": "...", "description": "..."},
+    #     "ko": {"title": "...", "description": "..."},
+    #     ...
+    #   }
+    #
+    # The seeder writes the dict verbatim into `spice_routes.translations`
+    # (a JSONB column). The list / detail endpoints accept
+    # `?translate_to=<locale>` and swap the matching entry onto the row
+    # before serialising. Recipes without this key (or without an entry
+    # for a particular locale) fall back to `title` / `description`
+    # silently, so partial coverage is safe — start with the dishes the
+    # PM wants localised first, fill in the rest later.
+    translations: NotRequired[dict[str, dict[str, str]]]
 
 
 # Slug -> comma-separated Flickr search keywords. The keywords are the
@@ -959,6 +975,31 @@ CURATED: list[RecipeSpec] = [
         "cuisine": "french", "language": "en", "spice_level": 0,
         "prep": 25, "cook": 75, "servings": 4, "image": _img("coq-au-vin"),
         "tags": ["braise", "weekend", "comfort"],
+        # Burmese intentionally omits "title" so the card falls back to
+        # "Coq au Vin" — there's no settled Burmese transliteration of
+        # the dish, and the eyebrow ("ပြင်သစ်" / French) already
+        # communicates the cuisine context.
+        "translations": {
+            "zh": {
+                "title": "红酒炖鸡",
+                "description": "勃艮第经典：以红酒慢炖鸡肉，搭配培根、蘑菇与珍珠洋葱。",
+            },
+            "ja": {
+                "title": "コック・オー・ヴァン",
+                "description": "ブルゴーニュ地方の定番、鶏肉を赤ワインで煮込み、ベーコン・マッシュルーム・パールオニオンを添えた一皿。",
+            },
+            "ko": {
+                "title": "코코뱅",
+                "description": "부르고뉴 클래식: 닭고기를 레드와인에 졸이고 베이컨, 버섯, 진주양파를 곁들인 요리.",
+            },
+            "vi": {
+                "title": "Gà hầm rượu vang Coq au Vin",
+                "description": "Món cổ điển vùng Bourgogne: gà hầm rượu vang đỏ với thịt xông khói, nấm và hành ngọc trai.",
+            },
+            "my": {
+                "description": "ဘာဂန်ဒီနယ်မှ ဂန္ထဝင်ဟင်း — ကြက်သားကို ဝိုင်နီ၊ ဝက်ပေါင်ခြောက်၊ မှို နှင့် ပုလဲကြက်သွန်နီများဖြင့် ပြုတ်ထားသည်။",
+            },
+        },
         "ingredients": [
             {"quantity": 1.5, "unit": "kg", "name": "chicken pieces, bone-in"},
             {"quantity": 150, "unit": "g", "name": "smoked bacon lardons"},
@@ -990,6 +1031,27 @@ CURATED: list[RecipeSpec] = [
         "cuisine": "french", "language": "en", "spice_level": 0,
         "prep": 20, "cook": 60, "servings": 6, "image": _img("ratatouille"),
         "tags": ["stew", "summer", "vegetarian"],
+        "translations": {
+            "zh": {
+                "title": "普罗旺斯炖菜",
+                "description": "普罗旺斯夏季蔬菜慢炖菜，将番茄、茄子、西葫芦温柔地融合在一起。",
+            },
+            "ja": {
+                "title": "ラタトゥイユ",
+                "description": "プロヴァンスの夏野菜をじっくり煮込み、なめらかなハーモニーに仕上げた郷土料理。",
+            },
+            "ko": {
+                "title": "라타투이",
+                "description": "프로방스 여름 채소를 천천히 졸여 매끄럽게 어우러지게 한 시골풍 스튜.",
+            },
+            "vi": {
+                "title": "Rau củ hầm Ratatouille",
+                "description": "Món hầm rau củ mùa hè kiểu Provence, nấu chậm để các vị quyện vào nhau mượt mà.",
+            },
+            "my": {
+                "description": "ပရိုဗန့်စ်ဒေသမှ နွေရာသီဟင်းသီးဟင်းရွက်များကို ပျော့ပျောင်းသွားသည်အထိ ဖြည်းညှင်းစွာ ပြုတ်ထားသော ဒေသိယဟင်း။",
+            },
+        },
         "ingredients": [
             {"quantity": 1, "name": "large eggplant, cubed"},
             {"quantity": 2, "name": "zucchini, cubed"},
@@ -1018,6 +1080,27 @@ CURATED: list[RecipeSpec] = [
         "cuisine": "french", "language": "en", "spice_level": 0,
         "prep": 30, "cook": 45, "servings": 6, "image": _img("quiche-lorraine"),
         "tags": ["baking", "brunch", "classic"],
+        "translations": {
+            "zh": {
+                "title": "洛林咸派",
+                "description": "黄油酥皮包裹培根、鸡蛋与奶油，遵循洛林地区的经典做法。",
+            },
+            "ja": {
+                "title": "キッシュ・ロレーヌ",
+                "description": "バターたっぷりのショートクラストに、ベーコン・卵・生クリームを詰めた、ロレーヌ地方の伝統的な一品。",
+            },
+            "ko": {
+                "title": "키슈 로렌",
+                "description": "버터 향 가득한 쇼트크러스트에 베이컨, 달걀, 크림을 채워 구운 로렌 지방의 전통 요리.",
+            },
+            "vi": {
+                "title": "Bánh Quiche Lorraine",
+                "description": "Vỏ bánh giòn bơ thơm phức, nhân thịt xông khói, trứng và kem béo theo công thức truyền thống vùng Lorraine.",
+            },
+            "my": {
+                "description": "လော်ရိန်းနယ်ပြင်သစ်ဓလေ့အရ ထောပတ်ပါသော အခွံပါးပါးထဲမှာ ဝက်ပေါင်ခြောက်၊ ဥ၊ နှင့် ခရင်မ်တို့ ဖြည့်ထားသည်။",
+            },
+        },
         "ingredients": [
             {"quantity": 250, "unit": "g", "name": "all-purpose flour"},
             {"quantity": 125, "unit": "g", "name": "cold unsalted butter, cubed"},

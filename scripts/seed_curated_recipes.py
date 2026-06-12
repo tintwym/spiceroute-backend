@@ -431,6 +431,7 @@ async def main(*, quick: bool = False) -> None:
         backfilled = 0
         relinked = 0
         retagged = 0
+        translations_synced = 0
         for spec in CURATED:
             target_tag_names = _augmented_tags(spec["title"], list(spec["tags"]))
             if spec["title"] in existing:
@@ -456,6 +457,16 @@ async def main(*, quick: bool = False) -> None:
                     for n in missing:
                         row.tags.append(tag_by_name[n])
                     retagged += 1
+                # Backfill translations onto already-seeded rows whenever
+                # the curated spec gains (or updates) a `translations`
+                # entry. Compared against the live JSONB so re-runs that
+                # don't change the dict are no-ops. Without this branch
+                # the existing rows ship with `translations=NULL` for
+                # ever even after we ship hand-written per-locale copy.
+                spec_translations = spec.get("translations")
+                if spec_translations and row.translations != spec_translations:
+                    row.translations = spec_translations
+                    translations_synced += 1
                 continue
             resolved_image = resolved_by_title[spec["title"]]
             sr = SpiceRoute(
@@ -470,6 +481,7 @@ async def main(*, quick: bool = False) -> None:
                 cuisine=Cuisine(spec["cuisine"]),
                 language=spec["language"],
                 spice_level=spec["spice_level"],
+                translations=spec.get("translations"),
                 calories_per_serving=spec.get(
                     "calories", _CUISINE_KCAL_FALLBACK.get(spec["cuisine"])
                 ),
@@ -501,7 +513,8 @@ async def main(*, quick: bool = False) -> None:
             f"Seeded {added} curated recipes "
             f"(skipped {skipped} duplicates, backfilled calories on "
             f"{backfilled}, re-linked images on {relinked}, "
-            f"added course/dietary tags to {retagged})."
+            f"added course/dietary tags to {retagged}, synced "
+            f"translations on {translations_synced})."
         )
 
 

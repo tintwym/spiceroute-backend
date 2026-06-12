@@ -32,6 +32,48 @@ async def _load_owner_names(
     return {row.id: row.display_name for row in rows}
 
 
+def _resolve_translation(
+    row: SpiceRoute, locale: str | None
+) -> tuple[str | None, str | None]:
+    """Look up the per-locale title/description override for a row,
+    returning `(title_override, description_override)` for the
+    serializer. `None` means "no override — fall back to the row's
+    source-of-truth column" (see `to_summary` docstring).
+
+    Why this is read-only (no ORM mutation): the older shape of this
+    helper wrote `row.title = translated_title` directly. That worked
+    only because our read endpoints don't commit, but SQLAlchemy still
+    flagged the attribute as dirty. Any later code path that triggered
+    a commit on the same session (a future write endpoint sharing the
+    session, a middleware, or just someone adding `await db.commit()`
+    here without realising) would have silently persisted the
+    translated string back into `spice_routes.title`, irreversibly
+    corrupting the seed data. Returning override values instead keeps
+    the ORM instance untouched and makes the translation flow explicit
+    at the call site.
+
+    Returns `(None, None)` when:
+      - `locale` is null / empty (caller didn't request a translation)
+      - the row's `translations` column is null / empty (no locale
+        overrides were seeded for this recipe)
+      - `translations[locale]` doesn't exist (no override for the
+        specific locale the caller asked for)
+
+    For a partial override (e.g. Burmese has a description but no
+    settled title transliteration), the missing field is returned as
+    `None` so the serializer falls back to the source column for just
+    that one field — preventing blank titles on the UI.
+    """
+    if not locale or not row.translations:
+        return None, None
+    bundle = row.translations.get(locale)
+    if not bundle:
+        return None, None
+    translated_title = bundle.get("title") or None
+    translated_description = bundle.get("description") or None
+    return translated_title, translated_description
+
+
 async def _get_owned_recipe(
     db: DbSession, spice_route_id: UUID, user: User
 ) -> SpiceRoute:
@@ -52,6 +94,15 @@ async def list_spice_routes(
     q: str | None = None,
     cuisine: Cuisine | None = None,
     language: str | None = Query(default=None, max_length=8),
+    translate_to: str | None = Query(
+        default=None,
+        max_length=8,
+        description="Locale to translate title/description into when a "
+        "matching entry exists in the recipe's translations bundle. "
+        "Distinct from `language` (which filters by the recipe's *source* "
+        "language). Missing translations fall back silently to the source "
+        "title/description, so callers can pass this on every request.",
+    ),
     tag: str | None = None,
     max_minutes: int | None = Query(default=None, ge=0),
     premium_only: bool = False,
@@ -74,7 +125,10 @@ async def list_spice_routes(
     Filters:
         q             title / description / ingredient name substring
         cuisine       one of the 16 supported cuisines
-        language      one of en, zh, my, ja, ko, vi
+        language      one of en, zh, my, ja, ko, vi  (filters by source)
+        translate_to  same set, but switches title/description to the
+                      per-locale override when one was seeded for the row
+                      (no filter, no fallback to empty)
         tag           free-form tag exact match
         max_minutes   prep + cook upper bound
         premium_only  only the curated seed set
@@ -165,13 +219,25 @@ async def list_spice_routes(
         db, {r.user_id for r in spice_routes if r.user_id is not None}
     )
 
-    items = [
-        to_summary(
-            r,
-            owner_display_name=owner_names.get(r.user_id) if r.user_id else None,
+    # Resolve per-locale title/description overrides BEFORE
+    # serialisation. We pass them as kwargs into `to_summary` so the
+    # raw `translations` JSONB blob never leaks into the wire format
+    # and the ORM rows stay read-only — see `_resolve_translation`
+    # docstring for the rationale.
+    requested_locale = (translate_to or "").strip().lower() or None
+    items = []
+    for r in spice_routes:
+        title_override, desc_override = _resolve_translation(r, requested_locale)
+        items.append(
+            to_summary(
+                r,
+                owner_display_name=(
+                    owner_names.get(r.user_id) if r.user_id else None
+                ),
+                title_override=title_override,
+                description_override=desc_override,
+            )
         )
-        for r in spice_routes
-    ]
     return SpiceRouteListResponse(
         items=items, total=total, limit=limit, offset=offset
     )
@@ -218,6 +284,13 @@ async def get_spice_route(
     spice_route_id: UUID,
     db: DbSession,
     user: OptionalCurrentUser = None,
+    translate_to: str | None = Query(
+        default=None,
+        max_length=8,
+        description="Locale to translate title/description into when a "
+        "matching entry exists in the recipe's translations bundle. See "
+        "list_spice_routes for the full contract.",
+    ),
 ) -> SpiceRouteDetail:
     spice_route = await db.get(SpiceRoute, spice_route_id)
     if not spice_route:
@@ -234,6 +307,10 @@ async def get_spice_route(
     owner_names = await _load_owner_names(
         db, {spice_route.user_id} if spice_route.user_id else set()
     )
+    requested_locale = (translate_to or "").strip().lower() or None
+    title_override, desc_override = _resolve_translation(
+        spice_route, requested_locale
+    )
     return to_detail(
         spice_route,
         owner_display_name=(
@@ -241,6 +318,8 @@ async def get_spice_route(
             if spice_route.user_id
             else None
         ),
+        title_override=title_override,
+        description_override=desc_override,
     )
 
 
