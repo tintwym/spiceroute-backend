@@ -156,7 +156,40 @@ no surrounding prose, no trailing commas):
 """
 
 
-def _call_gemini(title: str, description: str, cuisine: str) -> dict[str, Any]:
+def _extract_retry_delay_seconds(exc: Exception) -> float | None:
+    """Pull the `retryDelay` value out of a Gemini 429 error payload.
+
+    The API returns it inside a structured QuotaFailure block, e.g.
+    `{'@type': 'type.googleapis.com/google.rpc.RetryInfo',
+       'retryDelay': '23s'}`. Honouring this is the difference between
+    waiting ~25 s once vs. burning the rest of the run on a chain of
+    immediate retries that each get throttled again.
+
+    The google-genai SDK stuffs the raw error JSON into `exc.args[0]`
+    or `str(exc)` depending on the SDK version, so we string-grep
+    rather than poke at the structured details (which aren't part of
+    the SDK's public surface).
+    """
+    text = str(exc)
+    # Match patterns like "'retryDelay': '23s'" or "'retryDelay': '24.99s'"
+    import re
+
+    m = re.search(r"['\"]retryDelay['\"]\s*:\s*['\"]?([\d.]+)s['\"]?", text)
+    if not m:
+        return None
+    try:
+        return float(m.group(1))
+    except ValueError:
+        return None
+
+
+def _call_gemini(
+    title: str,
+    description: str,
+    cuisine: str,
+    *,
+    max_retries: int = 5,
+) -> dict[str, Any]:
     from google import genai
     from google.genai import types
 
@@ -172,11 +205,54 @@ def _call_gemini(title: str, description: str, cuisine: str) -> dict[str, Any]:
         response_mime_type="application/json",
         temperature=0.35,
     )
-    response = client.models.generate_content(
-        model=os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"),
-        contents=_build_prompt(title, description, cuisine),
-        config=config,
-    )
+    # Retry loop. Two distinct retryable failure modes:
+    #   429 RESOURCE_EXHAUSTED — free tier quota (5 RPM) is exhausted.
+    #     The API tells us *exactly* how long to wait via `retryDelay`
+    #     in the structured error; we honour it (+ a small jitter).
+    #   503 UNAVAILABLE        — "high demand" transient capacity error.
+    #     Pure server-side blip; an exponential backoff with a few
+    #     attempts almost always recovers.
+    # Anything else (bad request, auth failure, etc.) bubbles up
+    # immediately — no point retrying.
+    last_exc: Exception | None = None
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(
+                model=os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"),
+                contents=_build_prompt(title, description, cuisine),
+                config=config,
+            )
+            break
+        except Exception as exc:
+            text = str(exc)
+            last_exc = exc
+            if "RESOURCE_EXHAUSTED" in text or "429" in text:
+                wait = _extract_retry_delay_seconds(exc) or 30.0
+                wait += 2.0  # small buffer so we don't hit the boundary
+                print(
+                    f"  · 429 quota — sleeping {wait:.0f}s before retry "
+                    f"({attempt + 1}/{max_retries})",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                time.sleep(wait)
+                continue
+            if "UNAVAILABLE" in text or "503" in text:
+                wait = min(2 ** attempt * 5, 60)  # 5, 10, 20, 40, 60
+                print(
+                    f"  · 503 transient — sleeping {wait}s before retry "
+                    f"({attempt + 1}/{max_retries})",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                time.sleep(wait)
+                continue
+            raise
+    else:
+        # Loop exhausted without success.
+        raise RuntimeError(
+            f"giving up on {title!r} after {max_retries} retries: {last_exc}"
+        ) from last_exc
     text = (response.text or "").strip()
     if not text:
         raise RuntimeError(f"empty response from gemini for {title!r}")
@@ -393,6 +469,47 @@ def _splice_translations(
 # ---------------------------------------------------------------------------
 
 
+def _persist_one(
+    title: str, translations: dict[str, dict[str, str]]
+) -> None:
+    """Re-parse curated_data.py, find the recipe dict whose title
+    matches `title`, and splice in the freshly-translated block.
+
+    Why re-parse on every write: the caller captured `ast.Dict` nodes
+    from a single up-front parse. Once we write the first
+    translation, every subsequent node's `lineno` is stale (every
+    recipe BELOW the inserted block has shifted down by ~16 lines).
+    Re-parsing each time gives us a stable view that already reflects
+    the previous write.
+
+    Why match by title (not lineno): the earlier "first node with
+    lineno >= captured_lineno" approach has a subtle bug. Once
+    enough prior recipes have been spliced, their fresh-parse
+    linenos overtake the *original* linenos of later recipes — so
+    the lookup for recipe N silently matches an earlier (already
+    translated) recipe and re-writes its block instead. Manifested
+    as "writes silently stop landing after ~recipe 13" in the
+    backfill run that exposed this. Titles are unique within CURATED
+    so they're a stable key.
+    """
+    src = CURATED_DATA_FILE.read_text(encoding="utf-8")
+    fresh_nodes = _find_recipe_dicts(src)
+    target: ast.Dict | None = None
+    for fresh_title, node in fresh_nodes:
+        if fresh_title == title:
+            target = node
+            break
+    if target is None:
+        print(
+            f"  ! Warning: couldn't relocate recipe {title!r} for "
+            f"incremental write; skipping persist",
+            file=sys.stderr,
+        )
+        return
+    new_src = _splice_translations(src, [(target, translations)])
+    CURATED_DATA_FILE.write_text(new_src, encoding="utf-8")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__,
@@ -432,6 +549,19 @@ def main() -> int:
             "unhappy with."
         ),
     )
+    parser.add_argument(
+        "--rpm",
+        type=float,
+        default=4.0,
+        help=(
+            "Throttle to at most N requests per minute. Default 4.0 "
+            "stays comfortably under the gemini-2.5-flash free-tier "
+            "limit of 5 RPM. Bump to e.g. 60 for paid tier (1000 "
+            "RPM) so the run finishes in seconds instead of minutes. "
+            "Set to 0 to disable client-side throttling entirely and "
+            "lean only on the server's 429 retry-after responses."
+        ),
+    )
     args = parser.parse_args()
 
     source = CURATED_DATA_FILE.read_text(encoding="utf-8")
@@ -465,10 +595,43 @@ def main() -> int:
     # without re-walking the AST.
     spec_by_title = {spec["title"]: spec for spec in CURATED}
 
+    # Client-side rate-limit pacing. Free-tier gemini-2.5-flash allows
+    # 5 requests/minute AND 20 requests/day (both ceilings apply).
+    # --rpm=4 covers the per-minute side. The per-day ceiling can
+    # ONLY be solved by upgrading to paid tier or waiting until
+    # midnight Pacific — we just surface a clean 429 message in the
+    # log when it triggers.
+    #
+    # The retry loop inside `_call_gemini` is a second line of
+    # defence for the case where pacing isn't enough (concurrent
+    # runs, model in high-demand mode, etc.).
+    min_interval = 60.0 / args.rpm if args.rpm > 0 else 0.0
+    last_call_at: float | None = None
+
     additions: list[tuple[ast.Dict, dict[str, dict[str, str]]]] = []
     for i, (title, node) in enumerate(to_translate, start=1):
         spec = spec_by_title[title]
+
+        # Honour the per-minute budget BEFORE making the request, not
+        # after — sleeping after the call would mean the first two
+        # calls fire back-to-back and immediately trigger the 429.
+        if last_call_at is not None and min_interval > 0:
+            elapsed = time.monotonic() - last_call_at
+            if elapsed < min_interval:
+                wait = min_interval - elapsed
+                # Only log the wait if it's noticeable (>1 s) — we
+                # don't want to spam the operator with "sleeping 0.2s"
+                # at 60 RPM on the paid tier.
+                if wait > 1.0:
+                    print(
+                        f"  · pacing — sleeping {wait:.1f}s "
+                        f"(--rpm={args.rpm:g})",
+                        flush=True,
+                    )
+                time.sleep(wait)
+
         print(f"[{i}/{len(to_translate)}] {title} ({spec['cuisine']})…", flush=True)
+        last_call_at = time.monotonic()
         try:
             translations = _call_gemini(
                 title=title,
@@ -487,22 +650,34 @@ def main() -> int:
         print(f"  ✓ locales returned: {present}")
         if translations:
             additions.append((node, translations))
-        # Be polite to the Gemini API — a tiny pause between calls
-        # keeps us well under any per-minute rate limit even on the
-        # free tier.
-        time.sleep(0.25)
+            # Persist incrementally — write after every successful
+            # translation so a mid-run quota exhaustion / Ctrl-C /
+            # crash doesn't lose work. We re-parse the file each
+            # time so each splice operates on the freshly-written
+            # source (otherwise the second write would clobber the
+            # first because both AST nodes were captured from the
+            # *original* parse). The trade-off is N file writes for
+            # N translations, which is fine given the file is ~50 KB
+            # and we're capped at 4 RPM anyway.
+            if not args.dry_run:
+                _persist_one(title, translations)
 
     if not additions:
         print("\nNo successful translations to write.", file=sys.stderr)
         return 1
 
-    new_source = _splice_translations(source, additions)
     if args.dry_run:
+        # In dry-run we never wrote per-iteration, so we splice all
+        # at once just to validate the shape. Output is discarded.
+        new_source = _splice_translations(source, additions)
+        # `new_source` is intentionally unused — the splice is the
+        # validation step in dry-run mode. Touching it here is just
+        # so future-me doesn't "optimise" away the splice call by
+        # accident.
+        _ = new_source
         print(f"\n--dry-run set: would update {len(additions)} recipe(s).")
         print("Run again without --dry-run to write curated_data.py.")
         return 0
-
-    CURATED_DATA_FILE.write_text(new_source, encoding="utf-8")
     print(
         f"\nWrote translations for {len(additions)} recipe(s) into "
         f"{CURATED_DATA_FILE.relative_to(ROOT)}."
