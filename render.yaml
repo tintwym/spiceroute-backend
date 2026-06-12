@@ -41,17 +41,27 @@ services:
     healthCheckPath: /health
     autoDeploy: true
 
-    # The Dockerfile CMD ends with `--reload` for the docker-compose dev
-    # loop; we override it here so production runs without a file
-    # watcher AND binds to Render's injected $PORT (Render expects the
-    # service to listen on $PORT, typically 10000).
-    dockerCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
-
-    # Release tasks run on every deploy, BEFORE traffic shifts to the
-    # new instance. Migrations must succeed (failures abort the deploy);
-    # the curated-recipes seed is best-effort. See scripts/release.sh
-    # for the full breakdown.
-    preDeployCommand: bash scripts/release.sh
+    # Start command: run migrations + seed FIRST, then boot uvicorn.
+    #
+    # We chain `scripts/release.sh && uvicorn ...` instead of using
+    # `preDeployCommand` because the latter is a paid-tier-only
+    # feature on Render — Free instances silently ignore it, which
+    # means the migration would never run on a Free deploy and the
+    # API's first SELECT against the new column would 500 with
+    # `column "translations" does not exist`.
+    #
+    # `release.sh` exits non-zero if migrations fail, which means
+    # uvicorn never starts and Render's health check fails — exactly
+    # the behavior we want (deploy aborts instead of silently
+    # serving 500s). The curated-recipes seed inside release.sh is
+    # best-effort and won't block uvicorn boot.
+    #
+    # Note this runs on EVERY container start (incl. cold-boot after
+    # the Free-tier 15-min idle spin-down), not just on deploys.
+    # That's fine: `alembic upgrade head` is a no-op when the DB is
+    # already at head, and `seed_curated_recipes --quick` skips rows
+    # that already exist. The total overhead is <1 s on a warm DB.
+    dockerCommand: bash scripts/release.sh && uvicorn app.main:app --host 0.0.0.0 --port $PORT
 
     envVars:
       # ---- Non-secret config ---------------------------------------
