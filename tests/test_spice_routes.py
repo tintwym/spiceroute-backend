@@ -382,3 +382,109 @@ async def test_translate_to_does_not_mutate_source_row(
     ).scalar_one()
     assert persisted.title == "Ratatouille"
     assert persisted.description == "Provençal stewed vegetables."
+
+
+@pytest.mark.asyncio
+async def test_translate_to_survives_malformed_translations(
+    client: AsyncClient, db_session
+) -> None:
+    """Defensive regression: `/spice_routes?translate_to=…` must not
+    500 when a row's `translations` JSONB column has drifted from
+    the documented `dict | None` shape.
+
+    The model types `translations` as `dict | None`, but the
+    underlying Postgres JSONB column will faithfully return whatever
+    JSON value got stored. A buggy future writer (or a hand-crafted
+    UPDATE in psql) could plant a list, string, int, or a per-locale
+    bundle that itself isn't a dict. The previous implementation
+    called `.get(locale)` on whatever shape was returned, which
+    raises AttributeError on any non-dict — taking the entire
+    Explore listing down with HTTP 500 for every authenticated
+    client across the app.
+
+    This test pins the contract: every malformed shape silently
+    falls back to the source columns (`title`, `description`),
+    matching the "no translation available for this locale" branch.
+    """
+    from app.models.spice_route import SpiceRoute
+
+    rows = [
+        # `translations` is a JSON list — `.get()` would raise.
+        SpiceRoute(
+            title="ListShaped",
+            description="src desc 1",
+            cuisine="french",
+            language="en",
+            prep_minutes=5,
+            cook_minutes=5,
+            servings=1,
+            is_public=True,
+            is_premium=True,
+            spice_level=0,
+            translations=["ko", "ja"],
+        ),
+        # `translations[ko]` is a string — `.get("title")` would raise.
+        SpiceRoute(
+            title="StringBundle",
+            description="src desc 2",
+            cuisine="french",
+            language="en",
+            prep_minutes=5,
+            cook_minutes=5,
+            servings=1,
+            is_public=True,
+            is_premium=True,
+            spice_level=0,
+            translations={"ko": "not a dict"},
+        ),
+        # `translations[ko].title` is an int — coerce to None,
+        # serializer must not see a non-string.
+        SpiceRoute(
+            title="IntTitle",
+            description="src desc 3",
+            cuisine="french",
+            language="en",
+            prep_minutes=5,
+            cook_minutes=5,
+            servings=1,
+            is_public=True,
+            is_premium=True,
+            spice_level=0,
+            translations={"ko": {"title": 123, "description": "ok"}},
+        ),
+        # `translations[ko].title` is an empty string — fallback to
+        # source column rather than rendering a blank tile.
+        SpiceRoute(
+            title="EmptyTitle",
+            description="src desc 4",
+            cuisine="french",
+            language="en",
+            prep_minutes=5,
+            cook_minutes=5,
+            servings=1,
+            is_public=True,
+            is_premium=True,
+            spice_level=0,
+            translations={"ko": {"title": "", "description": "ok"}},
+        ),
+    ]
+    for row in rows:
+        db_session.add(row)
+    await db_session.commit()
+
+    r = await client.get("/spice_routes", params={"translate_to": "ko"})
+    assert r.status_code == 200, r.text
+    by_title = {item["title"]: item for item in r.json()["items"]}
+
+    # List-shaped translations: full fallback to source columns.
+    assert by_title["ListShaped"]["description"] == "src desc 1"
+
+    # String-shaped bundle: full fallback to source columns.
+    assert by_title["StringBundle"]["description"] == "src desc 2"
+
+    # Int title: coerced to None, source title is rendered, but the
+    # valid string description still wins.
+    assert by_title["IntTitle"]["description"] == "ok"
+
+    # Empty-string title: collapses to None, source title shows.
+    assert by_title["EmptyTitle"]["description"] == "ok"

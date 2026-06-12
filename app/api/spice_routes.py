@@ -58,19 +58,46 @@ def _resolve_translation(
         overrides were seeded for this recipe)
       - `translations[locale]` doesn't exist (no override for the
         specific locale the caller asked for)
+      - the row's `translations` column or its `[locale]` entry is
+        present but not the expected dict shape (e.g. a list got
+        written by a buggy migration / future writer). We refuse to
+        crash on shape drift — there are no current writers that can
+        produce this, but `/spice_routes?translate_to=…` is the most
+        widely-hit endpoint in the app and a 500 here takes Explore
+        down for every authenticated client. Defensive type guards
+        are cheaper than the alternative.
 
     For a partial override (e.g. Burmese has a description but no
     settled title transliteration), the missing field is returned as
     `None` so the serializer falls back to the source column for just
     that one field — preventing blank titles on the UI.
     """
-    if not locale or not row.translations:
+    if not locale:
         return None, None
-    bundle = row.translations.get(locale)
-    if not bundle:
+    translations = row.translations
+    # Belt-and-braces: model types this as `dict | None`, but the
+    # underlying JSONB column will faithfully return whatever JSON
+    # value got stored. A buggy writer (or a hand-crafted UPDATE in
+    # psql) could plant a list, string, or int here. `.get()` on
+    # any non-dict value raises AttributeError, which would 500 the
+    # listing endpoint with no useful client recovery path.
+    if not isinstance(translations, dict):
         return None, None
-    translated_title = bundle.get("title") or None
-    translated_description = bundle.get("description") or None
+    bundle = translations.get(locale)
+    if not isinstance(bundle, dict):
+        return None, None
+    raw_title = bundle.get("title")
+    raw_description = bundle.get("description")
+    # Coerce non-string values (numbers, bools, nested dicts) to None
+    # so the serializer's `str` type doesn't see something it can't
+    # render. Empty strings also collapse to None so the source-row
+    # fallback kicks in instead of painting a blank title.
+    translated_title = raw_title if isinstance(raw_title, str) and raw_title else None
+    translated_description = (
+        raw_description
+        if isinstance(raw_description, str) and raw_description
+        else None
+    )
     return translated_title, translated_description
 
 

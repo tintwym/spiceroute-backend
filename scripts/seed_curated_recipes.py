@@ -338,7 +338,12 @@ async def main(*, quick: bool = False) -> None:
             r.title: (r.id, r.image_path, r.calories_per_serving)
             for r in existing_rows
         }
-    existing = set(existing_snapshot.keys())
+    # Note: this snapshot is used ONLY by Phase 1 image-resolution
+    # decisions (skip the slow Flickr HEAD when we already have an
+    # image cached). The Phase 2 dedup check uses a fresh DB read
+    # so it stays correct in the face of parallel writes during
+    # the Phase 1 network loop. See the comment at the dedup
+    # branch below for the full rationale.
 
     # Resolve every URL we'll need (new rows + existing rows that need
     # re-freezing) without touching the DB.
@@ -434,7 +439,19 @@ async def main(*, quick: bool = False) -> None:
         translations_synced = 0
         for spec in CURATED:
             target_tag_names = _augmented_tags(spec["title"], list(spec["tags"]))
-            if spec["title"] in existing:
+            # IMPORTANT: dedup against the Phase 2 fresh read
+            # (`existing_by_title`), NOT the Phase 1 snapshot
+            # (`existing`). The Phase 1 set is captured BEFORE the
+            # slow LoremFlickr resolution loop, so anything written
+            # by a parallel process (or a previous deploy that
+            # raced this one on a restart) lands in Phase 2's read
+            # but not in Phase 1's snapshot — and using the stale
+            # set would let us INSERT a duplicate row (titles are
+            # only `index=True`, not `unique=True`, so the DB
+            # wouldn't catch it for us). On Render free-tier this
+            # is unlikely in practice (single worker), but it costs
+            # nothing to be correct here.
+            if spec["title"] in existing_by_title:
                 skipped += 1
                 row = existing_by_title[spec["title"]]
                 if row.calories_per_serving is None:
