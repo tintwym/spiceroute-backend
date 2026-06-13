@@ -1,6 +1,6 @@
 # SpiceRoute API
 
-FastAPI + SQLAlchemy + Alembic + PostgreSQL backend for **SpiceRoute**, a multilingual recipe app with an AI Creator (Gemini-generated recipes) and an AI Companion (Gemini streaming chat). Authentication is delegated to **Firebase Auth** — the API verifies Firebase ID tokens via `firebase-admin` and lazily provisions a local user row keyed by `firebase_uid`.
+FastAPI + SQLAlchemy + Alembic + PostgreSQL backend for **SpiceRoute**, a multilingual recipe app with an AI Creator (LLM-generated recipes) and an AI Companion (streaming chat). The AI layer talks to a local or self-hosted **[Ollama](https://ollama.com)** instance (default model: `llama3.1:8b`) over plain HTTP, and silently falls back to deterministic stub responses when Ollama isn't reachable. Authentication is delegated to **Firebase Auth** — the API verifies Firebase ID tokens via `firebase-admin` and lazily provisions a local user row keyed by `firebase_uid`.
 
 Runs in Docker. Default DB is [Neon](https://neon.tech) (managed Postgres); a local Docker Postgres profile is included for offline development.
 
@@ -25,14 +25,14 @@ The matching Flutter client lives at **[spiceroute-flutter](https://github.com/t
 │   │   ├── firebase.py         Firebase ID-token verifier (real + dev mode)
 │   │   ├── spice_routes.py     Ingredient/step builders, tag upsert
 │   │   ├── serialization.py    ORM → schema mapping
-│   │   └── ai/                 gemini.py, prompts.py, rate_limit.py
+│   │   └── ai/                 ollama.py, prompts.py, rate_limit.py
 │   └── main.py                 FastAPI entrypoint (v0.2.0)
 ├── alembic/                    Database migrations
 ├── scripts/seed_curated_recipes.py   Seeds 27 curated premium SpiceRoutes
 ├── tests/                      Pytest suite (auth, recipes, AI; SQLite + asyncio)
 ├── Dockerfile
 ├── docker-compose.yml          api (+ optional local Postgres, pgAdmin)
-└── pyproject.toml              Python 3.12+, FastAPI, SQLAlchemy 2, google-genai, firebase-admin
+└── pyproject.toml              Python 3.12+, FastAPI, SQLAlchemy 2, httpx (Ollama client), firebase-admin
 ```
 
 ## Features
@@ -42,15 +42,15 @@ The matching Flutter client lives at **[spiceroute-flutter](https://github.com/t
 - **Visibility-aware listing** — anonymous callers see public-only; authed callers see public + their own private; `mine=true` returns only their own.
 - **Full-text-ish search** across title, description, and ingredient name (`pg_trgm` GIN on Postgres, LIKE on SQLite for tests).
 - **Filters**: cuisine, language, tag, `max_minutes`, `premium_only`, `mine`.
-- **AI Creator** (`POST /ai/recipe/generate`) — Gemini generates a structured recipe; optional `save=true` (auth required) persists it as a public SpiceRoute attributed to the caller.
-- **AI Companion** (`POST /ai/chat/stream`) — Server-Sent Events stream of Gemini deltas for the chat UI.
+- **AI Creator** (`POST /ai/recipe/generate`) — Ollama generates a structured recipe; optional `save=true` (auth required) persists it as a public SpiceRoute attributed to the caller.
+- **AI Companion** (`POST /ai/chat/stream`) — Server-Sent Events stream of Ollama chat deltas for the chat UI.
 - **Per-IP rate limiting** for AI endpoints (`AI_RATE_LIMIT_PER_DAY`, `AI_CHAT_PER_HOUR`) so the unauthenticated AI surface is non-trivial to abuse.
 
 ## Prerequisites
 
 - Docker + Docker Compose
 - A Firebase project (for production-grade auth) — _optional in dev_, see [Dev modes](#dev-modes).
-- A Google AI Studio API key for Gemini — _optional in dev_, see [Dev modes](#dev-modes).
+- An Ollama install (local or self-hosted) for real AI — _optional_, see [Dev modes](#dev-modes). Without it the AI endpoints serve deterministic stub content.
 
 ## Quick start
 
@@ -58,7 +58,7 @@ The matching Flutter client lives at **[spiceroute-flutter](https://github.com/t
 cp .env.example .env
 # Edit .env:
 #   - Set DATABASE_URL (Neon or local — see notes below)
-#   - Optionally set GEMINI_API_KEY (otherwise stub mode)
+#   - Optionally point OLLAMA_BASE_URL at a running Ollama (otherwise stub mode)
 #   - Optionally point FIREBASE_CREDENTIALS_PATH at a real service-account JSON
 #     (otherwise dev-mode tokens `dev:<uid>` are accepted)
 
@@ -107,8 +107,8 @@ docker compose --profile tools up -d
 | PATCH  | `/spice_routes/{id}`                   | ✓ owner  | Partial update |
 | DELETE | `/spice_routes/{id}`                   | ✓ owner  | Delete |
 | GET    | `/tags`                                | —        | Tag autocomplete (`?q=` substring, `?limit=` 1..200) |
-| POST   | `/ai/recipe/generate`                  | optional¹| Gemini-generated recipe. `save=true` requires auth |
-| POST   | `/ai/chat/stream`                      | —        | SSE stream of Gemini chat deltas (`{type: "delta", text}` … `{type: "done"}`) |
+| POST   | `/ai/recipe/generate`                  | optional¹| Ollama-generated recipe. `save=true` requires auth |
+| POST   | `/ai/chat/stream`                      | —        | SSE stream of Ollama chat deltas (`{type: "delta", text}` … `{type: "done"}`) |
 
 ¹ Generation itself is anonymous + IP-rate-limited. `save=true` is auth-only — otherwise spam bots could fill the public catalog.
 
@@ -116,14 +116,15 @@ docker compose --profile tools up -d
 
 ## Dev modes
 
-The two heavy external dependencies (Firebase and Gemini) each have a built-in dev fallback so the API runs end-to-end with nothing configured.
+The two heavy external dependencies (Firebase and Ollama) each have a built-in dev fallback so the API runs end-to-end with nothing configured.
 
 | Variable | Empty / missing → | Configured → |
 |---|---|---|
 | `FIREBASE_CREDENTIALS_PATH` | **Dev mode**: any `Authorization: Bearer dev:<uid>` is accepted as user `<uid>`. Tests use this. | Tokens are verified via `firebase-admin`. |
-| `GEMINI_API_KEY` | **Stub mode**: AI endpoints return deterministic mock recipes / chat deltas. | Real Gemini calls (`GEMINI_MODEL`, default `gemini-2.5-flash`). |
+| `OLLAMA_BASE_URL` | **Stub mode** when blank or unreachable: AI endpoints return deterministic mock recipes / chat deltas (logged once per request as a warning). | Real `/api/generate` + `/api/chat` calls against `OLLAMA_MODEL` (default `llama3.1:8b`). |
+| `AI_FORCE_STUB` | Off (the client probes `OLLAMA_BASE_URL`). | `1` pins the AI layer to stub mode regardless of the URL — used by the test suite to avoid network probes. |
 
-> Never let either of these fall back in production — the dev modes are explicitly gated by file/key presence so a misconfigured deploy will start, _but_ won't accept arbitrary `dev:` tokens unless you actively delete the service-account JSON.
+> Never let the Firebase fallback flip in production — it's explicitly gated by file/key presence so a misconfigured deploy will start, _but_ won't accept arbitrary `dev:` tokens unless you actively delete the service-account JSON. Ollama stub mode is intentionally tolerant: it's expected to be active on hosting tiers that can't run an 8B model.
 
 ## Tests
 
@@ -150,7 +151,7 @@ A ready-to-use Render Blueprint ([`render.yaml`](./render.yaml)) lives at the ro
 - A Docker-backed Web Service that builds from this directory's `Dockerfile`.
 - A managed Render Postgres instance (skip / delete that block if you'd rather use Neon).
 - All non-secret env vars from [`.env.example`](./.env.example) baked into the blueprint.
-- Three `sync: false` slots for the secrets (`DATABASE_URL`, `FIREBASE_CREDENTIALS_JSON`, `GEMINI_API_KEY`) that you fill in via the dashboard after the blueprint applies.
+- `sync: false` slots for the secrets (`DATABASE_URL`, `FIREBASE_CREDENTIALS_JSON`, optional `OLLAMA_BASE_URL`) that you fill in via the dashboard after the blueprint applies.
 
 The blueprint also:
 
@@ -162,13 +163,13 @@ The blueprint also:
 
 1. **Push the repo to GitHub** (Render reads `render.yaml` from your default branch).
 2. **Render dashboard** → **New +** → **Blueprint** → pick this repo. Render shows you a diff of what it will create; approve.
-3. After provisioning finishes, open the new **`spiceroute-api`** service → **Environment** tab → fill in the three secrets:
+3. After provisioning finishes, open the new **`spiceroute-api`** service → **Environment** tab → fill in the secrets:
 
    | Key | How to obtain |
    |---|---|
    | `DATABASE_URL` | If you accepted the blueprint's Postgres: open the `spiceroute-db` service → copy the **External Connection String** → rewrite to the asyncpg format (see below). If using Neon: paste your Neon URL in asyncpg format. |
    | `FIREBASE_CREDENTIALS_JSON` | `cat firebase-service-account.json` from your local machine — paste the entire JSON content. |
-   | `GEMINI_API_KEY` | <https://aistudio.google.com/apikey> |
+   | `OLLAMA_BASE_URL` (optional) | URL of your Ollama host (a VPS with GPU, a Cloudflare-tunneled home server, RunPod, etc.). Leave blank to keep the AI endpoints in stub mode — Render's free / starter web tiers can't realistically run an 8B model in-process. When you do set this, **also delete the `AI_FORCE_STUB` env var** the blueprint pre-fills, otherwise the client never probes the URL. |
 
    Render's Postgres "External Connection String" looks like:
 
@@ -191,9 +192,9 @@ The blueprint also:
 |---|---|---|
 | `DATABASE_URL` | Dashboard (secret) | asyncpg format — `postgresql+asyncpg://…?ssl=require`. |
 | `FIREBASE_CREDENTIALS_JSON` | Dashboard (secret) | Service-account JSON inlined as a string (see [Dev modes](#dev-modes)). |
-| `GEMINI_API_KEY` | Dashboard (secret) | Billed API key. |
+| `OLLAMA_BASE_URL` | Dashboard (optional) | URL of a reachable Ollama host. Leave blank for stub mode. |
 | `CORS_ORIGINS` | `render.yaml` | Public knowledge; lock to your Vercel domain(s). |
-| `APP_NAME` / `DEBUG` / `GEMINI_MODEL` / `AI_RATE_LIMIT_PER_DAY` / `AI_CHAT_PER_HOUR` | `render.yaml` | Non-sensitive defaults from `.env.example`. |
+| `APP_NAME` / `DEBUG` / `OLLAMA_MODEL` / `AI_FORCE_STUB` / `AI_RATE_LIMIT_PER_DAY` / `AI_CHAT_PER_HOUR` | `render.yaml` | Non-sensitive defaults from `.env.example`. |
 
 #### Verifying
 
@@ -220,7 +221,8 @@ Render's per-service **Logs** tab streams the live application logs. The **Event
 ## Architecture notes
 
 - **Auth model**: Firebase is the source of truth. Local `users` rows store `firebase_uid`, optional `email`, and `display_name` (Apple Sign-In with private relay may withhold the email). No passwords, no refresh tokens — token rotation is the client's problem.
-- **AI calls** are wrapped with a single-retry policy (`gemini.AIError → retry once → 502`). Schema validation against `SpiceRouteCreate` discards extra keys (Gemini occasionally adds `image_prompt`, etc.) so model drift doesn't break the API.
+- **AI calls** are wrapped with a single-retry policy (`ollama.AIError → retry once → 502`). Schema validation against `SpiceRouteCreate` discards extra keys (small models occasionally add `image_prompt`, wrap output in a `recipe:` envelope, etc.) so model drift doesn't break the API.
+- **AI stub fallback**: if Ollama is unreachable mid-request the client logs a warning and serves stub content for that one request — it does NOT memoize the failure, so the moment Ollama comes back it's used again. Keeps "it works on my box" reports honest.
 - **AI chat** uses `StreamingResponse` with `text/event-stream` and `X-Accel-Buffering: no` so reverse proxies don't buffer.
 - **Rate limits** are stored per-IP in the database (so they survive restarts and apply across replicas, unlike in-memory).
 - **Search** uses `pg_trgm` GIN indexes on `spice_routes.title` and `ingredients.name` on Postgres.
@@ -235,8 +237,9 @@ See [`.env.example`](./.env.example). Defaults are dev-friendly; for real deploy
 | `DATABASE_URL` | `postgresql+asyncpg://…` (see Neon section) |
 | `FIREBASE_CREDENTIALS_PATH` | Path to the Firebase service-account JSON. Absent → dev mode. |
 | `FIREBASE_PROJECT_ID` | Optional; falls back to the value in the service-account JSON. |
-| `GEMINI_API_KEY` | Get one at <https://aistudio.google.com/apikey>. Empty → stub mode. |
-| `GEMINI_MODEL` | Default `gemini-2.5-flash`. |
+| `OLLAMA_BASE_URL` | Default `http://localhost:11434`. Empty or unreachable → stub mode (per-request, not memoized). |
+| `OLLAMA_MODEL` | Default `llama3.1:8b`. The tag must already be pulled on the Ollama host. |
+| `AI_FORCE_STUB` | `1` pins the AI layer to stub mode regardless of `OLLAMA_BASE_URL`. Used by the test suite. |
 | `AI_RATE_LIMIT_PER_DAY` | Default `30` — per-IP cap on `/ai/recipe/generate`. |
 | `AI_CHAT_PER_HOUR` | Default `50` — per-IP cap on `/ai/chat/stream`. |
 | `CORS_ORIGINS` | Comma-separated origins; `*` for local dev. |

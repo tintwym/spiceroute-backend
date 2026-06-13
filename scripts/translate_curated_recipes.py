@@ -1,5 +1,17 @@
 """Bulk-translate curated recipe titles + descriptions via Gemini.
 
+ORTHOGONAL TO THE RUNTIME AI BACKEND. The app's user-facing AI Creator
+and AI Companion now run on Ollama (see `app/services/ai/ollama.py`).
+This script stays on Gemini purely because Gemini 2.5 Flash is meaningfully
+better at low-resource multilingual translation (especially Burmese) than
+the small open-weight models we deploy locally — and the script only runs
+when we add new curated rows, which is rare.
+
+`google-genai` is NOT in `pyproject.toml`'s runtime deps. Install it
+on-demand in your local venv when you actually need to retranslate:
+
+    uv pip install google-genai
+
 Reads CURATED from `scripts/curated_data.py`, calls Gemini to translate
 each recipe's title and description into the 5 non-English locales
 SpiceRoute supports (zh, ja, ko, vi, my), and writes the resulting

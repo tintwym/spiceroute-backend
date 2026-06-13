@@ -51,11 +51,35 @@ class Settings(BaseSettings):
     firebase_credentials_json: str = ""
     firebase_project_id: str = ""
 
-    # Google Gemini — empty key triggers stub mode (deterministic mock responses)
-    # so the UI is dev-able without a real key. Get one at:
-    # https://aistudio.google.com/apikey
-    gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.5-flash"
+    # Ollama — local LLM runtime. We talk to it over plain HTTP, so the only
+    # knobs are the base URL and the model tag.
+    #
+    #   `OLLAMA_BASE_URL`  Where Ollama listens. Default targets a local
+    #                      `ollama serve` on the dev box. In production set
+    #                      this to your hosted Ollama URL (a VPS with GPU,
+    #                      a Cloudflare-tunneled home server, etc.). When
+    #                      Ollama is unreachable we silently fall back to
+    #                      stub mode rather than 500ing — useful for the
+    #                      Render free tier, where running an 8B model is
+    #                      not practical.
+    #
+    #   `OLLAMA_MODEL`     Model tag to load. The model must already be
+    #                      pulled on the Ollama host (`ollama pull
+    #                      llama3.1:8b`). Default is `llama3.1:8b` because
+    #                      it has solid JSON adherence at a manageable
+    #                      footprint (~5 GB).
+    #
+    #   `AI_FORCE_STUB`    Hard-override that pins the backend to stub mode
+    #                      regardless of what `OLLAMA_BASE_URL` says.
+    #                      Useful in CI where we don't want test runs to
+    #                      probe a network endpoint at all.
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = "llama3.1:8b"
+    ai_force_stub: bool = False
+    # Per-request hard cap on Ollama calls. Local models can take a while
+    # on CPU; the chat path is a stream so a long wall-clock here just
+    # bounds the connect/first-byte handshake, not the whole stream.
+    ollama_request_timeout_s: float = 120.0
 
     # AI rate limits, keyed by client IP (no auth in v1).
     ai_rate_limit_per_day: int = 30
@@ -68,8 +92,16 @@ class Settings(BaseSettings):
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
     @property
-    def gemini_stub_mode(self) -> bool:
-        return not self.gemini_api_key.strip()
+    def ai_stub_mode(self) -> bool:
+        """True when the AI layer should serve deterministic mock content.
+
+        Triggered by either an explicit `AI_FORCE_STUB=1` (preferred for
+        CI / offline dev) or by an empty `OLLAMA_BASE_URL`. Note that an
+        unreachable URL does NOT flip this on at config time — the
+        client probes Ollama lazily on first use and falls back to stubs
+        for that request only, so a flaky local Ollama doesn't poison
+        the whole process."""
+        return self.ai_force_stub or not self.ollama_base_url.strip()
 
     @property
     def firebase_dev_mode(self) -> bool:

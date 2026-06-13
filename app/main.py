@@ -61,12 +61,11 @@ elif settings.firebase_dev_mode:
     )
 
 
-# Lifespan hook: gives long-lived resources (DB pool, in-flight chat
-# producer threads via the default ThreadPoolExecutor) a chance to
-# wind down cleanly on SIGTERM / `uvicorn --reload`. Without this,
-# Postgres sees the backend's pooled connections as orphan in-progress
-# until they hit the server's idle-in-transaction timeout, and Gemini
-# producer threads keep draining responses we no longer care about.
+# Lifespan hook: gives long-lived resources (DB pool, the default
+# ThreadPoolExecutor used by httpx for blocking name resolution) a
+# chance to wind down cleanly on SIGTERM / `uvicorn --reload`. Without
+# this, Postgres sees the backend's pooled connections as orphan
+# in-progress until they hit the server's idle-in-transaction timeout.
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     log.info("application starting")

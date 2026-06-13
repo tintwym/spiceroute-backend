@@ -7,7 +7,7 @@ class Cuisine(StrEnum):
     Keep the wire strings in sync with
     `spiceroute-flutter/lib/models/spice_route.dart` (`enum Cuisine`)
     and the cuisine pills in `lib/shared/cuisine_pill_bar.dart`. The
-    Gemini structured-output schema enum (see
+    AI recipe-generation JSON schema enum (see
     `app/services/ai/prompts.py`) must enumerate the same set.
 
     Declaration ORDER here is independent of any client-side display

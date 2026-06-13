@@ -4,7 +4,11 @@ from collections.abc import AsyncGenerator
 from pathlib import Path
 
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
-os.environ.setdefault("GEMINI_API_KEY", "")
+# Pin the AI layer to stub mode in tests. Without this the client would
+# probe `OLLAMA_BASE_URL` (default localhost:11434) on every test and
+# fall back to stubs after a TCP failure, which is wasted time and a
+# flake risk if the dev machine happens to be running Ollama.
+os.environ.setdefault("AI_FORCE_STUB", "1")
 os.environ.setdefault("CORS_ORIGINS", "*")
 # Force Firebase dev-mode by pointing at a non-existent credentials path.
 # In dev-mode the verifier accepts `dev:<uid>[:<email>][:<name>]` tokens.

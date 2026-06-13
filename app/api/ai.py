@@ -1,8 +1,10 @@
 """AI Creator (recipe generation) and AI Companion (chat) endpoints.
 
 Both run anonymously and are rate-limited per client IP. Set
-GEMINI_API_KEY in the environment to switch from stub mode to real
-Gemini responses.
+`OLLAMA_BASE_URL` (and ensure the model in `OLLAMA_MODEL` is pulled on
+that host) to switch from stub mode to real Ollama responses. See
+`app/services/ai/ollama.py` for the reachability-fallback policy that
+keeps deploys without a configured Ollama from 502'ing every request.
 """
 from __future__ import annotations
 
@@ -22,7 +24,7 @@ from app.schemas.spice_route import (
     SpiceRouteCreate,
     SpiceRouteDetail,
 )
-from app.services.ai import gemini, rate_limit
+from app.services.ai import ollama, rate_limit
 from app.services.serialization import to_detail
 from app.services.spice_routes import (
     build_ingredients,
@@ -66,7 +68,7 @@ async def generate_recipe(
     ip: ClientIP,
     user: OptionalCurrentUser = None,
 ) -> RecipeGenerateResponse:
-    """Generate a recipe via Gemini.
+    """Generate a recipe via Ollama.
 
     Generation itself is anonymous + IP rate-limited so anyone can try it.
     `save=true` requires authentication — saving to the catalog is an authed
@@ -82,26 +84,25 @@ async def generate_recipe(
 
     raw: dict[str, Any]
     try:
-        raw = await gemini.generate_recipe(
+        raw = await ollama.generate_recipe(
             idea=payload.idea,
             cuisine=payload.cuisine.value if payload.cuisine else None,
             language=payload.language,
         )
-    except gemini.AIError as exc:
-        log.warning("gemini failed once, retrying: %s", exc)
+    except ollama.AIError as exc:
+        log.warning("ollama failed once, retrying: %s", exc)
         try:
-            raw = await gemini.generate_recipe(
+            raw = await ollama.generate_recipe(
                 idea=payload.idea,
                 cuisine=payload.cuisine.value if payload.cuisine else None,
                 language=payload.language,
             )
-        except gemini.AIError as exc2:
+        except ollama.AIError as exc2:
             # Log full traceback server-side; return a stable generic
             # message to the client. Echoing `str(exc2)` into the
-            # response body leaks Gemini SDK internals (project IDs,
-            # quota structure, internal call stacks) into client logs
-            # and crash reporters.
-            log.exception("gemini generation failed twice")
+            # response body leaks model/host internals (URLs, raw
+            # error bodies) into client logs and crash reporters.
+            log.exception("ollama generation failed twice")
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="AI generation is temporarily unavailable",
@@ -115,7 +116,7 @@ async def generate_recipe(
         # Validation errors can include the FULL invalid payload, which
         # in turn contains the user's idea + model output — neither
         # belongs in a client-facing detail string.
-        log.warning("gemini payload failed schema: %r -> %s", raw, exc)
+        log.warning("ollama payload failed schema: %r -> %s", raw, exc)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="AI returned a malformed recipe; please try again",
@@ -186,7 +187,7 @@ async def chat_stream(
     db: DbSession,
     ip: ClientIP,
 ) -> StreamingResponse:
-    """Streams Gemini deltas back as Server-Sent Events.
+    """Streams Ollama deltas back as Server-Sent Events.
 
     Frame format:
         data: {"type":"delta","text":"..."}\\n\\n
@@ -198,16 +199,15 @@ async def chat_stream(
 
     async def event_gen():
         try:
-            async for chunk in gemini.chat_stream(
+            async for chunk in ollama.chat_stream(
                 history=history, language=payload.language
             ):
                 yield f"data: {json.dumps({'type': 'delta', 'text': chunk})}\n\n"
         except Exception:
-            # Stable, generic error frame — `str(exc)` carries Gemini
-            # SDK internals (project IDs, internal call paths, stack
-            # traces) that don't belong in a client SSE payload. The
-            # raw exception is still logged server-side via
-            # `log.exception(...)` for ops debugging.
+            # Stable, generic error frame — `str(exc)` carries upstream
+            # error bodies / URLs that don't belong in a client SSE
+            # payload. The raw exception is still logged server-side
+            # via `log.exception(...)` for ops debugging.
             log.exception("chat stream failed")
             yield (
                 f"data: {json.dumps({'type': 'error', 'message': 'chat stream failed'})}\n\n"

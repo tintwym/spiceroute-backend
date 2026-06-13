@@ -17,8 +17,11 @@
 #   2. Render dashboard → "New +" → "Blueprint" → pick this repo.
 #   3. Render shows a diff of what it will create. Approve.
 #   4. After provisioning, open the new Web Service's "Environment" tab
-#      and fill in the three secret values: DATABASE_URL,
-#      FIREBASE_CREDENTIALS_JSON, GEMINI_API_KEY. Save.
+#      and fill in the secret values: DATABASE_URL,
+#      FIREBASE_CREDENTIALS_JSON. Save.
+#      Optionally set OLLAMA_BASE_URL too (see notes below). With it
+#      blank or unreachable the AI endpoints serve deterministic stub
+#      content per request — the rest of the app works fine.
 #   5. Trigger a manual deploy (or push to main if autoDeploy is on).
 #   6. Your URL: https://<service-name>.onrender.com
 #
@@ -69,8 +72,16 @@ services:
         value: SpiceRoute API
       - key: DEBUG
         value: "false"
-      - key: GEMINI_MODEL
-        value: gemini-2.5-flash
+      # Default model tag. The model must already be `ollama pull`'d on
+      # whatever host OLLAMA_BASE_URL points at.
+      - key: OLLAMA_MODEL
+        value: llama3.1:8b
+      # Render's free / starter web tiers can't realistically run an 8B
+      # model (no GPU, ~512 MB RAM). Leave OLLAMA_BASE_URL unset until
+      # you have a host that can — the AI client falls back to stub
+      # content per request when the URL is blank or unreachable.
+      - key: AI_FORCE_STUB
+        value: "1"
       - key: AI_RATE_LIMIT_PER_DAY
         value: "30"
       - key: AI_CHAT_PER_HOUR
@@ -101,8 +112,12 @@ services:
         sync: false                  # see below — paste asyncpg-format URL
       - key: FIREBASE_CREDENTIALS_JSON
         sync: false                  # paste the entire contents of firebase-service-account.json
-      - key: GEMINI_API_KEY
-        sync: false                  # https://aistudio.google.com/apikey
+      # OPTIONAL. URL of a reachable Ollama instance (your VPS, a
+      # Cloudflare-tunneled home server, RunPod, etc.). When set, also
+      # delete `AI_FORCE_STUB` above so the client actually probes it.
+      # Leave blank to keep the AI endpoints in stub mode.
+      - key: OLLAMA_BASE_URL
+        sync: false
 
 # ---- Managed Postgres -----------------------------------------------
 #

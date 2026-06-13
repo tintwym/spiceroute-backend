@@ -1,5 +1,10 @@
 """System prompts and JSON schemas for the AI Creator and AI Companion."""
 
+from __future__ import annotations
+
+import json
+from typing import Any
+
 # Languages we support across the UI. Used in prompts to nudge the model into
 # producing recipe content in the user's selected language. MUST stay in sync
 # with `SUPPORTED_LANGUAGES` in `app/schemas/spice_route.py` and with the
@@ -34,13 +39,21 @@ def recipe_system_prompt(language: str, cuisine: str | None) -> str:
         "Ingredients must have explicit quantity + unit when applicable. "
         "Steps must be numbered chronologically and concise (one action per step). "
         "Do NOT invent images. Do NOT include markdown. Output JSON ONLY, "
-        "matching the provided schema."
+        "matching the JSON schema given in the user message."
     )
 
 
-# JSON schema we ask Gemini to conform its recipe response to. Mirrors the
+# JSON schema we ask the model to conform its recipe response to. Mirrors the
 # `SpiceRouteCreate` Pydantic schema closely enough that we can hand the parsed
 # dict almost directly to the persistence layer.
+#
+# IMPORTANT: this is now used in two ways. With Gemini we passed it as
+# `response_schema` and the SDK enforced it on the decoder side. With Ollama
+# there is no such enforcement (`format: "json"` only guarantees valid JSON),
+# so we additionally inline this schema into the user prompt and lean on the
+# Pydantic validator in the API layer (which silently drops unknown keys) plus
+# the API's existing one-shot retry-on-AIError to recover from the occasional
+# small-model hallucination of an extra wrapper or a missing field.
 RECIPE_RESPONSE_SCHEMA: dict = {
     "type": "object",
     "required": ["title", "ingredients", "steps", "cuisine", "language"],
@@ -79,12 +92,12 @@ RECIPE_RESPONSE_SCHEMA: dict = {
         "language": {
             "type": "string",
             # MUST stay in lock-step with `SUPPORTED_LANGUAGES` in
-            # `app/schemas/spice_route.py`. Drift here was the cause of
-            # a silent Burmese-generation bug: with `my` missing from
-            # the enum, Gemini fell back to `en` and the saved row was
-            # mis-tagged (or rejected by Pydantic) even though the
-            # prose was Burmese. Adding a language to the app means
-            # updating BOTH places.
+            # `app/schemas/spice_route.py`. Drift here was historically
+            # the cause of a silent Burmese-generation bug: with `my`
+            # missing from the enum the model would fall back to `en`
+            # and the saved row was mis-tagged (or rejected by Pydantic)
+            # even though the prose was Burmese. Adding a language to
+            # the app means updating BOTH places.
             "enum": ["en", "zh", "my", "ja", "ko", "vi"],
         },
         "spice_level": {"type": "integer", "minimum": 0, "maximum": 3},
@@ -130,6 +143,30 @@ RECIPE_RESPONSE_SCHEMA: dict = {
         },
     },
 }
+
+
+def recipe_user_prompt(*, idea: str, schema: dict[str, Any]) -> str:
+    """User-side prompt for the recipe generator.
+
+    On Gemini this was just `idea` (the SDK injected the schema separately).
+    On Ollama there's no `response_schema`, so we ship the schema inline as
+    part of the prompt. Models follow inline JSON schemas reasonably well
+    when the request also has `format: "json"` set on the wire.
+
+    We pretty-print the schema (indent=2) on purpose: it's easier for the
+    model to follow when it's not a single 1.5 KB blob, and the extra
+    tokens are negligible against the recipe response itself.
+    """
+    return (
+        f"User idea: {idea}\n\n"
+        "Return a JSON object that conforms EXACTLY to this JSON schema. "
+        "Only the keys defined in the schema may appear. Use the literal "
+        "string values from each `enum` (do not translate enum keys). Do "
+        "NOT wrap the object in any envelope (no `recipe`, `data`, etc.) "
+        "and do NOT include any prose, markdown fences, or commentary — "
+        "just the JSON object.\n\n"
+        f"JSON schema:\n{json.dumps(schema, indent=2)}"
+    )
 
 
 def chat_system_prompt(language: str) -> str:

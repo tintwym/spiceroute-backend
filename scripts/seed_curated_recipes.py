@@ -147,15 +147,22 @@ _CUISINE_KCAL_FALLBACK = {
 # `tagName` field on those Dart enums exactly.
 #
 # Tag taxonomy mirrors the v2 filter design (see filter_bar.dart):
-#   Courses : breakfast | lunch | appetizer | side dish | dessert | snack
-#             | drinks
-#   Dietary : vegan | vegetarian | meal prep | quick | pasta soup
-#             | blood sugar balanced | swicy | anti-inflammatory
+#   Courses     : breakfast | lunch | appetizer | side dish | dessert
+#                 | snack | drinks
+#   Dietary     : vegan | vegetarian
+#   Allergen    : gluten-free | dairy-free | nut-free | egg-free
+#   Wellness    : blood sugar balanced | swicy | anti-inflammatory
+#   Cooking fmt : meal prep | quick | pasta soup
 #
-# Legacy tags (main course, dinner, soup, salad, gluten-free, dairy-free,
-# nut-free, high-protein, low-carb) are kept on the recipes for backward
-# compatibility and visible tag display, but are no longer surfaced as
-# filter dropdown options.
+# IMPORTANT — tag string format matches the `Dietary.tagName` field on
+# the Dart enum LITERALLY (case-insensitive but otherwise exact). The
+# allergen tags use hyphens (`gluten-free`, not `gluten free`) to match
+# the historical convention here AND the `anti-inflammatory` precedent
+# on the dietary side. A subtle space-vs-hyphen drift would silently
+# filter Explore to zero matches.
+#
+# Legacy tags still in use for visible tag display (not filter
+# surfacing): main course, dinner, soup, salad, high-protein, low-carb.
 _EXTRA_TAGS_BY_TITLE: dict[str, list[str]] = {
     # ---- Korean ----
     "Kimchi Jjigae": [
