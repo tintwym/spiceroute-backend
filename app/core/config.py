@@ -51,35 +51,48 @@ class Settings(BaseSettings):
     firebase_credentials_json: str = ""
     firebase_project_id: str = ""
 
-    # Ollama — local LLM runtime. We talk to it over plain HTTP, so the only
-    # knobs are the base URL and the model tag.
+    # LLM client — OpenAI-compatible Chat Completions HTTP wire format.
+    # The same three knobs cover every provider that speaks this protocol:
+    # Groq, OpenAI, OpenRouter, Cerebras, Together, and a local Ollama
+    # via its `/v1/chat/completions` shim.
     #
-    #   `OLLAMA_BASE_URL`  Where Ollama listens. Default targets a local
-    #                      `ollama serve` on the dev box. In production set
-    #                      this to your hosted Ollama URL (a VPS with GPU,
-    #                      a Cloudflare-tunneled home server, etc.). When
-    #                      Ollama is unreachable we silently fall back to
-    #                      stub mode rather than 500ing — useful for the
-    #                      Render free tier, where running an 8B model is
-    #                      not practical.
+    #   `LLM_BASE_URL`  Provider's API root. The client appends
+    #                   `/chat/completions` directly. Examples:
+    #                     Groq    https://api.groq.com/openai/v1
+    #                     OpenAI  https://api.openai.com/v1
+    #                     Ollama  http://localhost:11434/v1
+    #                   Leave blank to keep the AI endpoints in stub mode.
     #
-    #   `OLLAMA_MODEL`     Model tag to load. The model must already be
-    #                      pulled on the Ollama host (`ollama pull
-    #                      llama3.1:8b`). Default is `llama3.1:8b` because
-    #                      it has solid JSON adherence at a manageable
-    #                      footprint (~5 GB).
+    #   `LLM_API_KEY`   Bearer token. Required even for local Ollama
+    #                   (Ollama ignores the value but the OpenAI-compat
+    #                   layer still demands the header — set it to any
+    #                   non-empty string, e.g. "ollama"). For Groq /
+    #                   OpenAI this is the real secret from the
+    #                   provider's dashboard.
     #
-    #   `AI_FORCE_STUB`    Hard-override that pins the backend to stub mode
-    #                      regardless of what `OLLAMA_BASE_URL` says.
-    #                      Useful in CI where we don't want test runs to
-    #                      probe a network endpoint at all.
-    ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "llama3.1:8b"
+    #   `LLM_MODEL`     Model name as the provider recognises it.
+    #                   Defaults to Groq's `llama-3.1-8b-instant` since
+    #                   that's our recommended free-tier setup. Swap to
+    #                   `llama-3.1-70b-versatile` (still free on Groq)
+    #                   for higher-quality recipes, or `gpt-4o-mini` /
+    #                   `llama3.1:8b` for OpenAI / local Ollama.
+    #
+    #   `AI_FORCE_STUB` Hard-override that pins the backend to stub mode
+    #                   regardless of LLM_BASE_URL. Useful in CI where we
+    #                   don't want test runs to probe a network endpoint
+    #                   at all. Stub mode also activates implicitly when
+    #                   either LLM_BASE_URL or LLM_API_KEY is empty —
+    #                   that's how a half-configured Render deploy
+    #                   degrades quietly instead of 401-spamming.
+    llm_base_url: str = ""
+    llm_api_key: str = ""
+    llm_model: str = "llama-3.1-8b-instant"
     ai_force_stub: bool = False
-    # Per-request hard cap on Ollama calls. Local models can take a while
-    # on CPU; the chat path is a stream so a long wall-clock here just
-    # bounds the connect/first-byte handshake, not the whole stream.
-    ollama_request_timeout_s: float = 120.0
+    # Per-request hard cap on chat-completions calls. The chat path is a
+    # stream, so this bounds the connect / first-byte handshake (not the
+    # full stream wall clock). Recipe generation is one-shot and uses
+    # the full timeout budget for the model to think.
+    llm_request_timeout_s: float = 120.0
 
     # AI rate limits, keyed by client IP (no auth in v1).
     ai_rate_limit_per_day: int = 30
@@ -95,13 +108,26 @@ class Settings(BaseSettings):
     def ai_stub_mode(self) -> bool:
         """True when the AI layer should serve deterministic mock content.
 
-        Triggered by either an explicit `AI_FORCE_STUB=1` (preferred for
-        CI / offline dev) or by an empty `OLLAMA_BASE_URL`. Note that an
-        unreachable URL does NOT flip this on at config time — the
-        client probes Ollama lazily on first use and falls back to stubs
-        for that request only, so a flaky local Ollama doesn't poison
-        the whole process."""
-        return self.ai_force_stub or not self.ollama_base_url.strip()
+        Triggered by any of:
+          * `AI_FORCE_STUB=1` (preferred for CI / offline dev — skips
+            the network probe entirely).
+          * `LLM_BASE_URL` empty.
+          * `LLM_API_KEY` empty. This makes a half-configured deploy
+            ("URL set in the blueprint, key not yet pasted in the
+            secrets tab") quietly serve stubs instead of spamming 401s
+            from the provider.
+
+        Note that an unreachable URL with both knobs set does NOT flip
+        this on at config time — the client probes the provider lazily
+        on first use and falls back to stubs for that ONE request, so
+        a flaky upstream doesn't poison the whole process."""
+        if self.ai_force_stub:
+            return True
+        if not self.llm_base_url.strip():
+            return True
+        if not self.llm_api_key.strip():
+            return True
+        return False
 
     @property
     def firebase_dev_mode(self) -> bool:

@@ -1,11 +1,13 @@
 """Bulk-translate curated recipe titles + descriptions via Gemini.
 
 ORTHOGONAL TO THE RUNTIME AI BACKEND. The app's user-facing AI Creator
-and AI Companion now run on Ollama (see `app/services/ai/ollama.py`).
-This script stays on Gemini purely because Gemini 2.5 Flash is meaningfully
-better at low-resource multilingual translation (especially Burmese) than
-the small open-weight models we deploy locally — and the script only runs
-when we add new curated rows, which is rare.
+and AI Companion run against whatever OpenAI-compatible provider is
+configured at LLM_BASE_URL / LLM_API_KEY (see `app/services/ai/llm.py`)
+— Groq by default in production. This script stays on Gemini purely
+because Gemini 2.5 Flash is meaningfully better at low-resource
+multilingual translation (especially Burmese) than the smaller models
+we use for the live API — and the script only runs when we add new
+curated rows, which is rare.
 
 `google-genai` is NOT in `pyproject.toml`'s runtime deps. Install it
 on-demand in your local venv when you actually need to retranslate:

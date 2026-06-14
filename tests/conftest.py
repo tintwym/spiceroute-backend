@@ -5,9 +5,10 @@ from pathlib import Path
 
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 # Pin the AI layer to stub mode in tests. Without this the client would
-# probe `OLLAMA_BASE_URL` (default localhost:11434) on every test and
-# fall back to stubs after a TCP failure, which is wasted time and a
-# flake risk if the dev machine happens to be running Ollama.
+# read `LLM_BASE_URL` from the dev's `.env` and try to hit Groq / OpenAI
+# on every test, which is slow, costs quota, and flakes when the network
+# blips. Tests that exercise the real HTTP path bypass this gate
+# explicitly via the `disable_stub_mode` fixture in `test_llm_client.py`.
 os.environ.setdefault("AI_FORCE_STUB", "1")
 os.environ.setdefault("CORS_ORIGINS", "*")
 # Force Firebase dev-mode by pointing at a non-existent credentials path.

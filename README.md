@@ -1,6 +1,6 @@
 # SpiceRoute API
 
-FastAPI + SQLAlchemy + Alembic + PostgreSQL backend for **SpiceRoute**, a multilingual recipe app with an AI Creator (LLM-generated recipes) and an AI Companion (streaming chat). The AI layer talks to a local or self-hosted **[Ollama](https://ollama.com)** instance (default model: `llama3.1:8b`) over plain HTTP, and silently falls back to deterministic stub responses when Ollama isn't reachable. Authentication is delegated to **Firebase Auth** — the API verifies Firebase ID tokens via `firebase-admin` and lazily provisions a local user row keyed by `firebase_uid`.
+FastAPI + SQLAlchemy + Alembic + PostgreSQL backend for **SpiceRoute**, a multilingual recipe app with an AI Creator (LLM-generated recipes) and an AI Companion (streaming chat). The AI layer speaks the **OpenAI Chat Completions API**, so it drops in against any compatible provider — **[Groq](https://console.groq.com)** (free tier, our default), OpenAI, OpenRouter, Cerebras, Together, or a local **[Ollama](https://ollama.com)** via its `/v1/chat/completions` shim. The client silently falls back to deterministic stub responses when the provider isn't configured or is unreachable. Authentication is delegated to **Firebase Auth** — the API verifies Firebase ID tokens via `firebase-admin` and lazily provisions a local user row keyed by `firebase_uid`.
 
 Runs in Docker. Default DB is [Neon](https://neon.tech) (managed Postgres); a local Docker Postgres profile is included for offline development.
 
@@ -25,14 +25,14 @@ The matching Flutter client lives at **[spiceroute-flutter](https://github.com/t
 │   │   ├── firebase.py         Firebase ID-token verifier (real + dev mode)
 │   │   ├── spice_routes.py     Ingredient/step builders, tag upsert
 │   │   ├── serialization.py    ORM → schema mapping
-│   │   └── ai/                 ollama.py, prompts.py, rate_limit.py
+│   │   └── ai/                 llm.py, prompts.py, rate_limit.py
 │   └── main.py                 FastAPI entrypoint (v0.2.0)
 ├── alembic/                    Database migrations
 ├── scripts/seed_curated_recipes.py   Seeds 27 curated premium SpiceRoutes
 ├── tests/                      Pytest suite (auth, recipes, AI; SQLite + asyncio)
 ├── Dockerfile
 ├── docker-compose.yml          api (+ optional local Postgres, pgAdmin)
-└── pyproject.toml              Python 3.12+, FastAPI, SQLAlchemy 2, httpx (Ollama client), firebase-admin
+└── pyproject.toml              Python 3.12+, FastAPI, SQLAlchemy 2, httpx (LLM client), firebase-admin
 ```
 
 ## Features
@@ -42,15 +42,15 @@ The matching Flutter client lives at **[spiceroute-flutter](https://github.com/t
 - **Visibility-aware listing** — anonymous callers see public-only; authed callers see public + their own private; `mine=true` returns only their own.
 - **Full-text-ish search** across title, description, and ingredient name (`pg_trgm` GIN on Postgres, LIKE on SQLite for tests).
 - **Filters**: cuisine, language, tag, `max_minutes`, `premium_only`, `mine`.
-- **AI Creator** (`POST /ai/recipe/generate`) — Ollama generates a structured recipe; optional `save=true` (auth required) persists it as a public SpiceRoute attributed to the caller.
-- **AI Companion** (`POST /ai/chat/stream`) — Server-Sent Events stream of Ollama chat deltas for the chat UI.
+- **AI Creator** (`POST /ai/recipe/generate`) — the configured LLM generates a structured recipe; optional `save=true` (auth required) persists it as a public SpiceRoute attributed to the caller.
+- **AI Companion** (`POST /ai/chat/stream`) — Server-Sent Events stream of LLM chat deltas for the chat UI.
 - **Per-IP rate limiting** for AI endpoints (`AI_RATE_LIMIT_PER_DAY`, `AI_CHAT_PER_HOUR`) so the unauthenticated AI surface is non-trivial to abuse.
 
 ## Prerequisites
 
 - Docker + Docker Compose
 - A Firebase project (for production-grade auth) — _optional in dev_, see [Dev modes](#dev-modes).
-- An Ollama install (local or self-hosted) for real AI — _optional_, see [Dev modes](#dev-modes). Without it the AI endpoints serve deterministic stub content.
+- An LLM API key for real AI — _optional_, see [Dev modes](#dev-modes). [Groq](https://console.groq.com/keys) is free and works out of the box (no GPU host needed). Without one (or with a local Ollama unconfigured) the AI endpoints serve deterministic stub content.
 
 ## Quick start
 
@@ -58,7 +58,8 @@ The matching Flutter client lives at **[spiceroute-flutter](https://github.com/t
 cp .env.example .env
 # Edit .env:
 #   - Set DATABASE_URL (Neon or local — see notes below)
-#   - Optionally point OLLAMA_BASE_URL at a running Ollama (otherwise stub mode)
+#   - Optionally paste a Groq key into LLM_API_KEY (otherwise stub mode);
+#     swap LLM_BASE_URL for OpenAI / local Ollama / etc. as needed.
 #   - Optionally point FIREBASE_CREDENTIALS_PATH at a real service-account JSON
 #     (otherwise dev-mode tokens `dev:<uid>` are accepted)
 
@@ -107,8 +108,8 @@ docker compose --profile tools up -d
 | PATCH  | `/spice_routes/{id}`                   | ✓ owner  | Partial update |
 | DELETE | `/spice_routes/{id}`                   | ✓ owner  | Delete |
 | GET    | `/tags`                                | —        | Tag autocomplete (`?q=` substring, `?limit=` 1..200) |
-| POST   | `/ai/recipe/generate`                  | optional¹| Ollama-generated recipe. `save=true` requires auth |
-| POST   | `/ai/chat/stream`                      | —        | SSE stream of Ollama chat deltas (`{type: "delta", text}` … `{type: "done"}`) |
+| POST   | `/ai/recipe/generate`                  | optional¹| LLM-generated recipe. `save=true` requires auth |
+| POST   | `/ai/chat/stream`                      | —        | SSE stream of LLM chat deltas (`{type: "delta", text}` … `{type: "done"}`) |
 
 ¹ Generation itself is anonymous + IP-rate-limited. `save=true` is auth-only — otherwise spam bots could fill the public catalog.
 
@@ -116,15 +117,15 @@ docker compose --profile tools up -d
 
 ## Dev modes
 
-The two heavy external dependencies (Firebase and Ollama) each have a built-in dev fallback so the API runs end-to-end with nothing configured.
+The two heavy external dependencies (Firebase and the LLM provider) each have a built-in dev fallback so the API runs end-to-end with nothing configured.
 
 | Variable | Empty / missing → | Configured → |
 |---|---|---|
 | `FIREBASE_CREDENTIALS_PATH` | **Dev mode**: any `Authorization: Bearer dev:<uid>` is accepted as user `<uid>`. Tests use this. | Tokens are verified via `firebase-admin`. |
-| `OLLAMA_BASE_URL` | **Stub mode** when blank or unreachable: AI endpoints return deterministic mock recipes / chat deltas (logged once per request as a warning). | Real `/api/generate` + `/api/chat` calls against `OLLAMA_MODEL` (default `llama3.1:8b`). |
-| `AI_FORCE_STUB` | Off (the client probes `OLLAMA_BASE_URL`). | `1` pins the AI layer to stub mode regardless of the URL — used by the test suite to avoid network probes. |
+| `LLM_BASE_URL` + `LLM_API_KEY` | **Stub mode** when either is blank or the host is unreachable: AI endpoints return deterministic mock recipes / chat deltas (logged once per request as a warning). | Real `/chat/completions` calls against `LLM_MODEL` (default `llama-3.1-8b-instant` on Groq). |
+| `AI_FORCE_STUB` | Off (the client probes the configured provider). | `1` pins the AI layer to stub mode regardless of the URL / key — used by the test suite to avoid network probes. |
 
-> Never let the Firebase fallback flip in production — it's explicitly gated by file/key presence so a misconfigured deploy will start, _but_ won't accept arbitrary `dev:` tokens unless you actively delete the service-account JSON. Ollama stub mode is intentionally tolerant: it's expected to be active on hosting tiers that can't run an 8B model.
+> Never let the Firebase fallback flip in production — it's explicitly gated by file/key presence so a misconfigured deploy will start, _but_ won't accept arbitrary `dev:` tokens unless you actively delete the service-account JSON. LLM stub mode is intentionally tolerant: it's expected to be active during initial setup before a key has been pasted, and on hosting tiers that can't reach the provider.
 
 ## Tests
 
@@ -151,7 +152,7 @@ A ready-to-use Render Blueprint ([`render.yaml`](./render.yaml)) lives at the ro
 - A Docker-backed Web Service that builds from this directory's `Dockerfile`.
 - A managed Render Postgres instance (skip / delete that block if you'd rather use Neon).
 - All non-secret env vars from [`.env.example`](./.env.example) baked into the blueprint.
-- `sync: false` slots for the secrets (`DATABASE_URL`, `FIREBASE_CREDENTIALS_JSON`, optional `OLLAMA_BASE_URL`) that you fill in via the dashboard after the blueprint applies.
+- `sync: false` slots for the secrets (`DATABASE_URL`, `FIREBASE_CREDENTIALS_JSON`, `LLM_API_KEY`) that you fill in via the dashboard after the blueprint applies.
 
 The blueprint also:
 
@@ -169,7 +170,7 @@ The blueprint also:
    |---|---|
    | `DATABASE_URL` | If you accepted the blueprint's Postgres: open the `spiceroute-db` service → copy the **External Connection String** → rewrite to the asyncpg format (see below). If using Neon: paste your Neon URL in asyncpg format. |
    | `FIREBASE_CREDENTIALS_JSON` | `cat firebase-service-account.json` from your local machine — paste the entire JSON content. |
-   | `OLLAMA_BASE_URL` (optional) | URL of your Ollama host (a VPS with GPU, a Cloudflare-tunneled home server, RunPod, etc.). Leave blank to keep the AI endpoints in stub mode — Render's free / starter web tiers can't realistically run an 8B model in-process. When you do set this, **also delete the `AI_FORCE_STUB` env var** the blueprint pre-fills, otherwise the client never probes the URL. |
+   | `LLM_API_KEY` | Free Groq key from <https://console.groq.com/keys> (no credit card). Paste it in. The blueprint pre-fills `LLM_BASE_URL` and `LLM_MODEL` for Groq's `llama-3.1-8b-instant`. Swap to `llama-3.1-70b-versatile` for higher-quality recipes (still free), or change `LLM_BASE_URL` + `LLM_MODEL` to point at OpenAI / OpenRouter / your own Ollama host instead. Leave `LLM_API_KEY` blank to keep the AI endpoints in stub mode. |
 
    Render's Postgres "External Connection String" looks like:
 
@@ -192,9 +193,9 @@ The blueprint also:
 |---|---|---|
 | `DATABASE_URL` | Dashboard (secret) | asyncpg format — `postgresql+asyncpg://…?ssl=require`. |
 | `FIREBASE_CREDENTIALS_JSON` | Dashboard (secret) | Service-account JSON inlined as a string (see [Dev modes](#dev-modes)). |
-| `OLLAMA_BASE_URL` | Dashboard (optional) | URL of a reachable Ollama host. Leave blank for stub mode. |
+| `LLM_API_KEY` | Dashboard (secret) | Provider API key. Free Groq key from <https://console.groq.com/keys>. Leave blank for stub mode. |
 | `CORS_ORIGINS` | `render.yaml` | Public knowledge; lock to your Vercel domain(s). |
-| `APP_NAME` / `DEBUG` / `OLLAMA_MODEL` / `AI_FORCE_STUB` / `AI_RATE_LIMIT_PER_DAY` / `AI_CHAT_PER_HOUR` | `render.yaml` | Non-sensitive defaults from `.env.example`. |
+| `APP_NAME` / `DEBUG` / `LLM_BASE_URL` / `LLM_MODEL` / `AI_RATE_LIMIT_PER_DAY` / `AI_CHAT_PER_HOUR` | `render.yaml` | Non-sensitive defaults from `.env.example`. |
 
 #### Verifying
 
@@ -221,8 +222,8 @@ Render's per-service **Logs** tab streams the live application logs. The **Event
 ## Architecture notes
 
 - **Auth model**: Firebase is the source of truth. Local `users` rows store `firebase_uid`, optional `email`, and `display_name` (Apple Sign-In with private relay may withhold the email). No passwords, no refresh tokens — token rotation is the client's problem.
-- **AI calls** are wrapped with a single-retry policy (`ollama.AIError → retry once → 502`). Schema validation against `SpiceRouteCreate` discards extra keys (small models occasionally add `image_prompt`, wrap output in a `recipe:` envelope, etc.) so model drift doesn't break the API.
-- **AI stub fallback**: if Ollama is unreachable mid-request the client logs a warning and serves stub content for that one request — it does NOT memoize the failure, so the moment Ollama comes back it's used again. Keeps "it works on my box" reports honest.
+- **AI calls** are wrapped with a single-retry policy (`llm.AIError → retry once → 502`). Schema validation against `SpiceRouteCreate` discards extra keys (small models occasionally add `image_prompt`, wrap output in a `recipe:` envelope, etc.) so model drift doesn't break the API.
+- **AI stub fallback**: if the LLM provider is unreachable mid-request the client logs a warning and serves stub content for that one request — it does NOT memoize the failure, so the moment the provider comes back it's used again. Keeps "it works on my box" reports honest.
 - **AI chat** uses `StreamingResponse` with `text/event-stream` and `X-Accel-Buffering: no` so reverse proxies don't buffer.
 - **Rate limits** are stored per-IP in the database (so they survive restarts and apply across replicas, unlike in-memory).
 - **Search** uses `pg_trgm` GIN indexes on `spice_routes.title` and `ingredients.name` on Postgres.
@@ -237,9 +238,10 @@ See [`.env.example`](./.env.example). Defaults are dev-friendly; for real deploy
 | `DATABASE_URL` | `postgresql+asyncpg://…` (see Neon section) |
 | `FIREBASE_CREDENTIALS_PATH` | Path to the Firebase service-account JSON. Absent → dev mode. |
 | `FIREBASE_PROJECT_ID` | Optional; falls back to the value in the service-account JSON. |
-| `OLLAMA_BASE_URL` | Default `http://localhost:11434`. Empty or unreachable → stub mode (per-request, not memoized). |
-| `OLLAMA_MODEL` | Default `llama3.1:8b`. The tag must already be pulled on the Ollama host. |
-| `AI_FORCE_STUB` | `1` pins the AI layer to stub mode regardless of `OLLAMA_BASE_URL`. Used by the test suite. |
+| `LLM_BASE_URL` | Provider's API root for OpenAI-style `/chat/completions`. Default empty (= stub). Examples: `https://api.groq.com/openai/v1`, `https://api.openai.com/v1`, `http://localhost:11434/v1`. |
+| `LLM_API_KEY` | Bearer token. Required for Groq / OpenAI / OpenRouter; for local Ollama any non-empty string works. Empty → stub mode (per-request, not memoized). |
+| `LLM_MODEL` | Model name as the provider recognizes it. Default `llama-3.1-8b-instant` (Groq). Use `gpt-4o-mini` (OpenAI), `llama3.1:8b` (local Ollama), `llama-3.1-70b-versatile` (Groq, larger), etc. |
+| `AI_FORCE_STUB` | `1` pins the AI layer to stub mode regardless of the URL / key. Used by the test suite. |
 | `AI_RATE_LIMIT_PER_DAY` | Default `30` — per-IP cap on `/ai/recipe/generate`. |
 | `AI_CHAT_PER_HOUR` | Default `50` — per-IP cap on `/ai/chat/stream`. |
 | `CORS_ORIGINS` | Comma-separated origins; `*` for local dev. |
