@@ -1,4 +1,5 @@
 from functools import lru_cache
+from urllib.parse import urlparse
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -144,6 +145,74 @@ class Settings(BaseSettings):
         if self.firebase_credentials_json.strip():
             return False
         return not Path(self.firebase_credentials_path).is_file()
+
+    @property
+    def is_local_database(self) -> bool:
+        """True when DATABASE_URL points at a local (or in-process) database.
+
+        Used by `assert_safe_dev_mode` to refuse booting in dev-mode auth
+        (which accepts impersonation tokens) while pointed at a remote
+        database. Without this guardrail it is surprisingly easy to leak
+        dev rows into production: set DEBUG=true in `.env`, run the
+        backend locally, forget that `.env`'s DATABASE_URL points at the
+        Neon prod instance, then any `dev:<uid>` API call writes to prod.
+
+        "Local" means one of:
+          * No host at all (sqlite / in-memory URLs — they can't reach
+            a remote DB by construction).
+          * Loopback (`localhost`, `127.0.0.1`, `::1`).
+          * The docker-compose service name `db` (matches the default
+            DATABASE_URL in this repo and `docker-compose.yml`).
+          * `host.docker.internal` — the magic name that lets a Docker
+            container reach the host machine, used when an in-container
+            backend talks to a Postgres on the developer's laptop."""
+        parsed = urlparse(self.database_url)
+        host = (parsed.hostname or "").lower()
+        if not host:
+            return True
+        return host in {
+            "localhost",
+            "127.0.0.1",
+            "::1",
+            "db",
+            "host.docker.internal",
+        }
+
+    def assert_safe_dev_mode(self) -> None:
+        """Boot-time guardrail: refuse to start in dev-mode auth + remote DB.
+
+        Called once from `app/main.py` at module load. Raises
+        `RuntimeError` if `firebase_dev_mode` is active (no credentials
+        configured) AND `DEBUG=true` (dev tokens accepted) AND
+        DATABASE_URL points at a remote host. That precise three-way
+        combination is the only one where forgotten dev-token API
+        calls can silently land in production data — `DEBUG=false`
+        flips the auth verifier into LOCKDOWN (rejects every token),
+        and a real Firebase service account reduces dev tokens to
+        forgeries that the verifier rejects too. Either of those is
+        a safe state regardless of which DB is configured.
+
+        The two intended remediations are surfaced in the error
+        message so an operator hitting this for the first time can
+        unblock without reading the source."""
+        if not (self.firebase_dev_mode and self.debug):
+            return
+        if self.is_local_database:
+            return
+        host = urlparse(self.database_url).hostname or "<unknown>"
+        raise RuntimeError(
+            "Refusing to start: DEV MODE auth (no Firebase credentials + "
+            f"DEBUG=true) is pointed at a remote database (host={host!r}). "
+            "This combination accepts `dev:<uid>` impersonation tokens AND "
+            "writes them to the remote DB — exactly how production data "
+            "gets polluted with developer test rows. Fix one of:\n"
+            "  * Point DATABASE_URL at a local DB (postgres on localhost / "
+            "docker-compose, or sqlite for offline dev).\n"
+            "  * Configure FIREBASE_CREDENTIALS_PATH or "
+            "FIREBASE_CREDENTIALS_JSON to enable real auth.\n"
+            "  * Set DEBUG=false (dev tokens get rejected by the verifier; "
+            "the service still boots and public endpoints still work)."
+        )
 
 
 @lru_cache

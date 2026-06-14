@@ -60,6 +60,17 @@ elif settings.firebase_dev_mode:
         "This is gated by DEBUG=true; never set DEBUG=true in production."
     )
 
+# Boot-time guardrail. The DEV-MODE auth + remote-DB combination is
+# how production data gets polluted with developer test rows (see the
+# postmortem of the `Dev test recipe` row in Neon — local backend
+# pointed at the production DATABASE_URL, smoke-tested with a
+# `dev:alice` Bearer token, the row was written to prod). The check
+# is intentionally narrow: it only fires for that specific three-way
+# combination, so REAL MODE and LOCKDOWN MODE boots are unaffected
+# regardless of which DB they connect to. See
+# `Settings.assert_safe_dev_mode` for the rationale.
+settings.assert_safe_dev_mode()
+
 
 # Lifespan hook: gives long-lived resources (DB pool, the default
 # ThreadPoolExecutor used by httpx for blocking name resolution) a
